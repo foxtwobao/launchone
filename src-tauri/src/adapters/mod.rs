@@ -1,7 +1,9 @@
 mod claude;
+mod claude_desktop;
 mod codex;
 
-use crate::config::{Field, Format};
+use crate::config::{read_value, Change, Field, Format};
+use crate::desktop_app::DesktopSpec;
 use crate::error::{message, Result};
 use crate::models::{AppManifest, Credential, Mode};
 use serde_json::Value;
@@ -41,6 +43,28 @@ impl Context {
 
 pub trait AppAdapter: Send + Sync {
     fn manifest(&self) -> AppManifest;
+    fn desktop(&self) -> Option<DesktopSpec> {
+        None
+    }
+    fn targets(&self, context: &Context) -> Result<Vec<(String, PathBuf)>> {
+        Ok(vec![(self.manifest().id.into(), self.path(context)?)])
+    }
+    fn changes(
+        &self,
+        context: &Context,
+        mode: Mode,
+        credential: Option<&Credential>,
+    ) -> Result<Vec<Change>> {
+        Ok(vec![Change {
+            id: self.manifest().id.into(),
+            path: self.path(context)?,
+            format: self.format(),
+            fields: self.fields(mode, credential)?,
+        }])
+    }
+    fn current_mode(&self, context: &Context, endpoint: Option<&str>) -> Result<Option<Mode>> {
+        Ok(self.mode(&read_value(&self.path(context)?, self.format())?, endpoint))
+    }
     fn path(&self, context: &Context) -> Result<PathBuf>;
     fn format(&self) -> Format;
     fn fields(&self, mode: Mode, credential: Option<&Credential>) -> Result<Vec<Field>>;
@@ -62,7 +86,11 @@ pub struct Registry {
 impl Default for Registry {
     fn default() -> Self {
         Self {
-            adapters: vec![Box::new(codex::Codex), Box::new(claude::Claude)],
+            adapters: vec![
+                Box::new(codex::Codex),
+                Box::new(claude_desktop::ClaudeDesktop),
+                Box::new(claude::Claude),
+            ],
         }
     }
 }

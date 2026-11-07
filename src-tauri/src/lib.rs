@@ -1,8 +1,10 @@
 pub mod adapters;
 pub mod auth;
 pub mod config;
+pub mod desktop_app;
 pub mod error;
 pub mod models;
+pub mod preferences;
 pub mod process;
 pub mod service;
 pub mod settings;
@@ -11,7 +13,7 @@ mod vendor;
 #[cfg(feature = "desktop")]
 mod desktop {
     use crate::error::{message, Result};
-    use crate::models::{Account, Progress, Snapshot};
+    use crate::models::{Account, DefaultFailure, Progress, Snapshot};
     use crate::service::Runtime;
     use crate::settings::Settings;
     use std::sync::Arc;
@@ -104,6 +106,51 @@ mod desktop {
         runtime.restore(&app_id).await
     }
 
+    #[tauri::command]
+    async fn open_app(runtime: State<'_, Arc<Runtime>>, app_id: String) -> Result<()> {
+        runtime.open(&app_id).await
+    }
+
+    #[tauri::command]
+    async fn install_app(
+        app: tauri::AppHandle,
+        runtime: State<'_, Arc<Runtime>>,
+        app_id: String,
+    ) -> Result<bool> {
+        runtime
+            .install(
+                &app_id,
+                |url| {
+                    app.opener()
+                        .open_url(url, None::<&str>)
+                        .map_err(|_| message("无法打开官方下载页面"))
+                },
+                |p| {
+                    let _ = app.emit("setup-progress", p);
+                },
+            )
+            .await
+    }
+
+    #[tauri::command]
+    async fn prepare_defaults(
+        app: tauri::AppHandle,
+        runtime: State<'_, Arc<Runtime>>,
+    ) -> Result<Vec<DefaultFailure>> {
+        runtime
+            .defaults(
+                |url| {
+                    app.opener()
+                        .open_url(url, None::<&str>)
+                        .map_err(|_| message("无法打开浏览器"))
+                },
+                |p| {
+                    let _ = app.emit("setup-progress", p);
+                },
+            )
+            .await
+    }
+
     pub fn run() {
         tauri::Builder::default()
             .plugin(tauri_plugin_opener::init())
@@ -124,7 +171,10 @@ mod desktop {
                 logout,
                 enable_app,
                 use_official,
-                restore_app
+                restore_app,
+                open_app,
+                install_app,
+                prepare_defaults
             ])
             .run(tauri::generate_context!())
             .expect("无法启动 LaunchOne 桌面窗口");

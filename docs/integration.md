@@ -5,8 +5,8 @@
 ## 用户流程
 
 1. 点击「登录 IDONE」：应用打开浏览器设备确认页，显示确认码，后台按 IDONE 指定间隔查询结果。
-2. 点击工具「启用 TokenOne」：已有模型授权则直接取本人 Key；缺少授权时打开浏览器确认，返回应用自动继续。
-3. 桌面 Rust 后端写入工具配置，模型请求由 CLI 直连 TokenOne。Key 不进入网页、URL 或界面 IPC。
+2. 首次登录后，为已安装且支持接入的桌面应用默认准备 TokenOne：已有模型授权则直接取本人 Key；缺少授权时打开浏览器确认，返回应用自动继续。用户选择订阅或恢复后，后续登录不强制覆盖。
+3. 桌面 Rust 后端写入工具配置，模型请求由原应用直连 TokenOne。桌面模式保留“打开”入口，卡片直接切换 TokenOne / 官方订阅。Key 不进入网页、URL 或界面 IPC。
 
 首页仍只有账号和应用卡片。新增工具只需内置适配器，不改变登录或取 Key 接口。
 
@@ -101,3 +101,11 @@ NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt npm run service
 - IDONE：`controllers/auth.go`、`controllers/token.go`、`object/token_oauth.go`、`object/wellknown_oidc_discovery.go`。
 - CreativeOne：`server/src/tokenone.ts`、`server/src/reseller-auth.ts`、`server/src/creative-user-auth.ts`。
 - Reseller：`internal/server/applications.go`、`internal/server/application_authorization.go`、`docs/APPLICATIONS.md`。
+
+## 0.2.0 桌面配置
+
+Codex 使用同一份 `config.toml` 和原有 `codex` 备份所有权，避免与 CLI 重复管理。ChatGPT / Codex 的桌面安装状态与网关能力分开判断；旧 ChatGPT 可打开，不能据此把普通 ChatGPT 聊天标为已走 TokenOne。
+
+Claude Desktop 使用 `Claude`、`Claude-3p` 的部署模式与独立 `configLibrary` 配置，单独的 LaunchOne profile；不写 Claude Code CLI 的 settings。四份配置作为一个可恢复事务处理。切回订阅移除本 profile 的网关 Key 并回到官方部署模式；恢复原配置则恢复首次变更前的相关字段，二者不等同。
+
+用户选择保存在本机应用数据目录，不含 Key。只有已安装应用、有效 IDONE 会话且没有先前管理备份或明确选择时，首次默认准备才会运行；登录不会批量安装其他应用。切换之后需要用户退出并重新打开目标应用，LaunchOne 不自动终止任务。

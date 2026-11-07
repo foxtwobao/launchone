@@ -15,3 +15,9 @@ provider database, router, UI or command surface.
 All other LaunchOne-specific business code is implemented for this project.
 Dependency licenses remain with their respective authors. Upstream application
 identifiers, update endpoints and credentials are not included.
+
+Claude Desktop's config-library layout was also checked against upstream
+`src-tauri/src/claude_desktop_config.rs` at commit
+`e1f8acf6479068b05e7e9df7c764aff3f76c08b4`. LaunchOne implements its own
+minimal direct-gateway adapter and transactional field backups; it does not
+copy the upstream router, provider store, model mappings, or account switching.

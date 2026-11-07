@@ -34,6 +34,14 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
+    env:
+      LAUNCHONE_IDONE_ISSUER: ${{ vars.LAUNCHONE_IDONE_ISSUER }}
+      LAUNCHONE_CLIENT_ID: ${{ vars.LAUNCHONE_CLIENT_ID }}
+      LAUNCHONE_SERVICE_URL: ${{ vars.LAUNCHONE_SERVICE_URL }}
+      LAUNCHONE_CODEX_BASE_URL: ${{ vars.LAUNCHONE_CODEX_BASE_URL }}
+      LAUNCHONE_CODEX_MODEL: ${{ vars.LAUNCHONE_CODEX_MODEL }}
+      LAUNCHONE_CLAUDE_BASE_URL: ${{ vars.LAUNCHONE_CLAUDE_BASE_URL }}
+      LAUNCHONE_CLAUDE_MODEL: ${{ vars.LAUNCHONE_CLAUDE_MODEL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

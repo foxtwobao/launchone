@@ -1,6 +1,6 @@
 [package]
 name = "launchone"
-version = "0.1.1"
+version = "0.2.0"
 description = "TokenOne application setup assistant"
 edition = "2021"
 license = "MIT"
@@ -31,6 +31,7 @@ json5 = "0.4"
 json-five = "0.3.1"
 thiserror = "2"
 dirs = "5"
+plist = "1"
 tempfile = "3"
 fs2 = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "time", "net", "io-util", "sync"] }

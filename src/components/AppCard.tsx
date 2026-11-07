@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Asterisk, Check, ChevronRight, Ellipsis, LoaderCircle, RotateCcw, Terminal, TriangleAlert } from "lucide-react";
+import { ArrowRight, Asterisk, Check, Ellipsis, LoaderCircle, RotateCcw, Terminal, TriangleAlert } from "lucide-react";
 import type { AppStatus, Progress } from "../lib/types";
 
 interface Props {
@@ -11,20 +11,22 @@ interface Props {
   progress?: Progress;
   error?: string;
   notice?: string;
+  onOpen(): void;
+  onInstall(): void;
   onEnable(): void;
   onOfficial(): void;
   onRestore(): void;
   onCancel(): void;
 }
 
-export function AppCard({ app, signedIn, desktop, ready, busy, progress, error, notice, onEnable, onOfficial, onRestore, onCancel }: Props) {
+export function AppCard({ app, signedIn, desktop, ready, busy, progress, error, notice, onOpen, onInstall, onEnable, onOfficial, onRestore, onCancel }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menu = useRef<HTMLDetailsElement>(null);
   const active = Boolean(progress);
   const configured = app.installed && app.mode === "tokenone" && !error;
   const problem = error ?? app.error;
   const name = app.manifest.name;
-  const blocked = !desktop || !app.supported || !signedIn || !ready;
+  const unavailable = !desktop || !app.supported;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -46,9 +48,8 @@ export function AppCard({ app, signedIn, desktop, ready, busy, progress, error, 
     menu.current?.removeAttribute("open");
     callback();
   };
-  let label = configured ? "已启用" : !signedIn ? "登录后启用" : problem ? "重试" : "启用 TokenOne";
-  if (active) label = progress!.message;
-  const status = active ? "正在准备" : problem ? "需要处理" : configured ? "已连接 TokenOne" : !desktop ? "等待桌面检测" : !app.supported ? "当前平台暂不支持" : !app.installed ? "尚未安装" : app.mode === "official" ? "使用官方方式" : "待配置";
+  const label = active ? progress!.message : app.installed ? "打开" : "安装";
+  const status = active ? progress!.message : problem ? "需要处理" : !desktop ? "等待桌面检测" : !app.supported ? "当前平台暂不支持" : !app.installed ? "尚未安装" : configured ? "已配置 TokenOne" : app.mode === "official" ? "使用官方订阅" : "已安装 · 待选择使用方式";
 
   return <article className={`app-card ${configured ? "is-connected" : ""} ${problem ? "has-error" : ""}`} aria-labelledby={`name-${app.manifest.id}`}>
     <div className="card-heading">
@@ -58,23 +59,27 @@ export function AppCard({ app, signedIn, desktop, ready, busy, progress, error, 
       <details ref={menu} className="tool-menu" onToggle={event => setMenuOpen(event.currentTarget.open)}>
         <summary aria-label={`${name} 更多操作`} aria-expanded={menuOpen}><Ellipsis size={20} /></summary>
         <div className="menu-panel">
-          {app.manifest.supportsOfficial && <button disabled={!desktop || !app.supported || busy} onClick={() => action(onOfficial)}><ArrowRight size={15} />使用官方登录<ChevronRight size={14} /></button>}
-          <button disabled={!app.canRestore || busy} onClick={() => action(onRestore)}><RotateCcw size={15} />撤销配置修改</button>
+          <button disabled={!app.canRestore || busy} onClick={() => action(onRestore)}><RotateCcw size={15} />恢复原配置</button>
         </div>
       </details>
     </div>
     <h3 id={`name-${app.manifest.id}`}>{name}</h3>
     <p className="tool-description">{app.manifest.description}</p>
-    {configured && <p className="command-hint">在终端运行 <code>{app.manifest.command}</code></p>}
     <div className={`tool-status ${problem ? "status-error" : ""}`}>
       {active ? <LoaderCircle size={14} className="spin" /> : configured ? <Check size={14} /> : problem ? <TriangleAlert size={14} /> : <span className="status-dot" />}
       <span>{status}</span>
       {app.version && <span className="tool-version" title={app.version}>{app.version}</span>}
     </div>
-    <button className={`setup-button ${configured ? "connected-button" : ""}`} disabled={busy || blocked || configured} onClick={onEnable} aria-label={`${name}：${label}`}>
-      {active ? <LoaderCircle size={16} className="spin" /> : configured ? <Check size={17} /> : null}
-      {label}
-      {!active && !configured && <ArrowRight size={16} />}
+    <div className="mode-switch" role="group" aria-label={`${name} 使用方式`}>
+      <span>使用方式</span>
+      <button aria-label={`${name}：TokenOne`} aria-pressed={app.installed && app.mode === "tokenone"} disabled={busy || unavailable || !app.installed || !signedIn || !ready || !app.tokenoneSupported || (app.mode === "tokenone" && !problem)} onClick={onEnable}>TokenOne</button>
+      {app.manifest.supportsOfficial && <button aria-label={`${name}：官方订阅`} aria-pressed={app.installed && app.mode === "official"} disabled={busy || unavailable || !app.installed || app.mode === "official"} onClick={onOfficial}>官方订阅</button>}
+    </div>
+    {app.installed && app.mode && <p className="mode-hint">切换后请先退出原应用，再点击“打开”使配置生效。</p>}
+    {app.installed && !app.tokenoneSupported && <p className="mode-hint">当前版本未检测到 Codex 网关支持，请先升级官方桌面应用。仍可直接打开使用。</p>}
+    {app.installed && !signedIn && <p className="mode-hint">登录 IDONE 后可使用 TokenOne；打开应用和官方订阅无需登录。</p>}
+    <button className="setup-button" disabled={busy || unavailable || (!app.installed && Boolean(app.error))} onClick={app.installed ? onOpen : onInstall} aria-label={`${name}：${label}`}>
+      {active ? <LoaderCircle size={16} className="spin" /> : null}{label}{!active && <ArrowRight size={16} />}
     </button>
     {progress?.stage === "authorization" && <button className="text-button" onClick={onCancel}>取消授权等待</button>}
     {problem && <p className="inline-error" role="alert">{problem}</p>}

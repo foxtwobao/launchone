@@ -24,6 +24,7 @@ pub struct AppManifest {
 pub struct AppStatus {
     pub manifest: AppManifest,
     pub installed: bool,
+    pub tokenone_supported: bool,
     pub version: Option<String>,
     pub mode: Option<Mode>,
     pub can_restore: bool,
@@ -47,6 +48,13 @@ pub struct Snapshot {
     pub login_ready: bool,
     pub tokenone_ready: bool,
     pub desktop: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultFailure {
+    pub app_id: String,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -35,6 +35,7 @@ impl Settings {
             setting!("LAUNCHONE_CLAUDE_BASE_URL"),
             setting!("LAUNCHONE_CLAUDE_MODEL"),
         ) {
+            endpoints.insert("claude-desktop".into(), (url.clone(), model.clone()));
             endpoints.insert("claude-code".into(), (url, model));
         }
         Self {

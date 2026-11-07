@@ -1,37 +1,21 @@
 # LaunchOne
 
-TokenOne 专用的桌面安装配置助手。首版支持 Codex CLI、Claude Code，用户界面只有登录和应用卡片。
+TokenOne 专用桌面应用安装和配置助手，面向 macOS、Windows。0.2.0 首页以 ChatGPT / Codex 和 Claude 桌面端为主，已有 CLI 适配器保留为代码中的补充能力。
 
-当前已实现单页界面、Tauri 命令、内置应用注册表、双工具配置适配器、官方渠道安装入口、字段备份恢复、IDONE 设备登录和最小服务端取 Key/授权衔接。**lab 已通过真实设备登录、刷新、首次浏览器授权、个人 Key 获取及默认模型 HTTP 调用；当前供内测，仍需 macOS / Windows 真机 CLI 验收。**
+已安装应用直接“打开”，不要求登录 IDONE。首次登录后默认准备已安装且支持接入的应用的 TokenOne 配置；卡片可直接切换“TokenOne / 官方订阅”，主动选择会持久保存。“恢复原配置”放在更多菜单，不与订阅切换混用。切换前备份接入字段，失败回滚，保留无关设置。
 
-## 本地运行
+**当前为桌面内测实现，尚未完成 Mac / Windows 目标应用的真实界面验收。** lab 已验证设备登录、刷新、Key 获取及两个 CLI 的模型和工具调用，不能据此宣称桌面端全部功能已通过。详见 [测试说明](docs/mac-test.md) 与 [lab 验收](docs/lab-acceptance.md)。
 
-需要 Node.js 22.12+、Rust，以及当前系统的 Tauri 2 构建依赖。Node.js 版本还需满足锁定依赖的 engines 要求。
+## 运行与检查
+
+需要 Node.js 22.12+（满足锁定依赖 engines）、Rust 和对应平台 Tauri 构建依赖。
 
 ```bash
 npm ci
-npm run dev
-```
-
-浏览器打开 `http://127.0.0.1:1420`。浏览器模式只读预览，不模拟安装、配置或登录成功。
-
-在 macOS 或 Windows x64 上运行桌面应用：
-
-```bash
 npm run desktop
 ```
 
-未配置服务地址时，登录和 TokenOne 启用入口会保持不可用。开发服务参数参考 [.env.example](.env.example)，需导出到运行环境；文件本身不会自动加载。生产构建将参数编译进 Rust 后端，前端无法修改为任意供应商。
-
-```bash
-npm run desktop:build
-```
-
-打包默认生成 macOS DMG 或 Windows NSIS 安装包，平台分别构建。应用包标识暂定为 `com.tokenone.launchone`，正式发布前确认品牌、签名和服务配置。CI 只构建、上传工作流制品，不创建 release、不部署服务。
-
-macOS 通用测试包：在 Mac 上运行 `npm ci`、`npm run package:mac`，或手动运行 GitHub Actions 的 `macOS test build` 工作流。脚本生成支持 Apple Silicon / Intel 的 DMG、应用 ZIP、校验值和测试说明，位于 `output/macos/`。本地可用忽略的 `.env.local` 注入发布参数；CI 使用同名仓库 Variables。内测采用本地签名，未公证，安装和测试范围见 [macOS 测试说明](docs/mac-test.md)。
-
-## 检查
+`npm run dev` 为只读浏览器预览，不伪造桌面安装或认证结果。开发参数见 [.env.example](.env.example)，需导出到运行环境。发布参数编译进 Rust 后端，不能由界面改为任意供应商；独立 Reseller 应用凭证只放服务端。
 
 ```bash
 npm run build
@@ -41,37 +25,22 @@ npm run test:service
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-核心 Rust 测试不依赖桌面图形界面。配置集成测试必须使用 `Context::isolated` 和临时目录，忽略宿主机的 `CODEX_HOME`、`CLAUDE_CONFIG_DIR`。不得在真实用户目录中运行配置写入测试。
+配置测试必须使用 `Context::isolated` 和临时目录，不能访问宿主机 CLI 配置、`CODEX_HOME`、`CLAUDE_CONFIG_DIR` 或系统钥匙串。
 
-2026-11-07 在 Linux 开发环境已验证前端生产构建、7 项界面测试、30 项 Rust 测试、13 项服务端测试，以及 Tauri 桌面程序的编译和链接。Playwright 已检查首页、菜单与最小窗口布局；这些结果不代表 macOS / Windows 真机验收完成。
+Mac 在本机或私有 GitHub Actions 运行 `npm run package:mac`，读取忽略的 `.env.local` 或同名仓库 Variables；参数缺失直接拒绝打包。通用 DMG、应用 ZIP、校验值和说明在 `output/macos/`。Windows 使用官方安装入口，由系统完成安装授权，返回 LaunchOne 后重新检测；不能把下载页打开当作安装成功。
 
-## 代码入口
+## 代码与扩展
 
 | 位置 | 职责 |
 | --- | --- |
-| `src/App.tsx`、`src/components/AppCard.tsx` | 单页与通用应用卡片 |
-| `src/lib/bridge.ts` | 桌面 IPC 与只读浏览器预览 |
-| `src-tauri/src/adapters/` | 应用注册表，Codex 与 Claude Code 差异 |
-| `src-tauri/src/service.rs` | 检测、安装、配置、验证的共用流程 |
-| `src-tauri/src/config.rs` | 定点修改、私有备份、原子写入和冲突恢复 |
-| `src-tauri/src/auth.rs` | 设备授权、系统凭据存储、个人 Key 获取 |
-| `server/app.mjs` | 身份校验、Reseller 授权与取 Key 的最小服务端 |
-| `src-tauri/src/settings.rs` | 发布方服务配置，限制可用目标 |
+| `src/components/AppCard.tsx` | 打开 / 安装、TokenOne / 官方订阅和恢复入口 |
+| `src-tauri/src/desktop_app.rs` | 原生桌面识别、官方安装包与打开；不通过 CLI 猜测 |
+| `src-tauri/src/adapters/` | 内置应用差异、桌面配置及接入能力 |
+| `src-tauri/src/service.rs` | 默认准备、切换、验证与恢复编排 |
+| `src-tauri/src/preferences.rs` | 用户明确选择；防止再次登录覆盖订阅或恢复决定 |
+| `src-tauri/src/config.rs` | 保留格式的字段编辑、私有备份与多文件中断恢复 |
+| `src-tauri/src/auth.rs`、`server/app.mjs` | IDONE 与本人 Key 衔接；Key 不进入网页或界面 IPC |
 
-新增应用：实现 `AppAdapter`，在 `Registry` 注册，补充发布方端点与验证测试。首页和登录流程不需要知道应用 ID。适配器为内置代码，不支持用户导入脚本或第三方供应商。
+Codex 桌面端与 CLI 共用同一配置所有权和备份，避免互相覆盖。Claude Desktop 使用独立配置库，不把 Claude Code CLI 的 settings 当作桌面配置。新应用通过内置适配器和注册信息增加，不建设第三方插件或供应商管理。
 
-## 源码基线与待完成项
-
-采用 CC Switch 的 Tauri 技术栈，并直接复用其 JSONC 保留格式编辑器及原测试。为了减少无关功能，没有继承上游全量 UI、路由、供应商数据库和 IPC 命令。固定来源与许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
-
-后续必须完成：
-
-- macOS、Windows 真机验证安装、原生登录、实际 CLI 工具调用和已有配置兼容性。
-- 完成 Windows 配置及备份文件的当前用户访问权限验证。
-- 正式分发前配置 Apple Developer 签名与公证；内测可使用本地签名包。
-
-已按授权配置独立 lab 应用、模型组和 HTTPS 接入服务，专用普通账号已通过真实授权取 Key 及模型请求，邮箱验证已恢复原设置。新版 Mac 包内置 lab 发布参数，缺少参数会在打包时失败。见 [lab 验收记录](docs/lab-acceptance.md)。
-
-Linux 上已使用隔离配置验证两个真实 CLI 的文本请求、一次工具调用及结果回传。仍需 Mac / Windows 真机验证完整会话和本机安装配置。
-
-设计范围见 [方案](docs/tokenone-desktop-plan.md)，服务端衔接见 [接入说明](docs/integration.md)。
+沿用 CC Switch 技术栈及 JSONC 编辑器，来源与许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。方案见 [产品方案](docs/tokenone-desktop-plan.md)，服务端协议见 [接入说明](docs/integration.md)。正式分发前仍需 Apple 签名公证、Windows 文件权限及双平台真机验收。

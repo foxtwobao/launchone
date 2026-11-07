@@ -39,6 +39,7 @@ struct Journal {
     pending_before: Option<Vec<Field>>,
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Receipt {
     before: Vec<Field>,
     after: Vec<Field>,
@@ -92,6 +93,16 @@ impl ConfigStore {
         fields: Vec<Field>,
     ) -> Result<Receipt> {
         let _lock = self.lock()?;
+        self.apply_unlocked(app, path, format, fields)
+    }
+
+    fn apply_unlocked(
+        &self,
+        app: &str,
+        path: &Path,
+        format: Format,
+        fields: Vec<Field>,
+    ) -> Result<Receipt> {
         let source = read_source(path, format)?;
         let current = parse(&source, format)?;
         let previous = self.load(app)?;
@@ -186,6 +197,129 @@ impl ConfigStore {
             &patched(&source, journal.format, &journal.before)?,
         )?;
         self.save_journal(app, None)
+    }
+
+    // Hold the file lock through verification. The complete rollback intent is
+    // persisted before the first file changes, including multi-file desktop configs.
+    pub fn begin(&self, app: &str, changes: Vec<Change>) -> Result<Batch> {
+        let lock = self.lock()?;
+        self.recover_unlocked()?;
+        let mut entries = Vec::new();
+        for change in &changes {
+            self.journal_path(&change.id)?;
+            let source = read_source(&change.path, change.format)?;
+            let current = parse(&source, change.format)?;
+            let previous = self.load(&change.id)?;
+            if previous
+                .as_ref()
+                .is_some_and(|j| j.path != change.path || !journal_matches(&current, j))
+            {
+                return Err(message("接入配置已被其他程序修改，原备份已保留"));
+            }
+            // Preflight every parse and patch before mutating any file.
+            patched(&source, change.format, &change.fields)?;
+            entries.push(BatchEntry {
+                id: change.id.clone(),
+                path: change.path.clone(),
+                format: change.format,
+                receipt: Receipt {
+                    before: capture(&current, &change.fields),
+                    after: change.fields.clone(),
+                    previous_journal: previous,
+                },
+            });
+        }
+        self.journal_path(app)?;
+        let intent = self.directory.join("pending-transaction.json");
+        atomic_write(&intent, &serde_json::to_vec(&entries)?)?;
+        for change in changes {
+            if let Err(e) =
+                self.apply_unlocked(&change.id, &change.path, change.format, change.fields)
+            {
+                self.recover_unlocked()?;
+                return Err(e);
+            }
+        }
+        Ok(Batch {
+            _lock: lock,
+            intent,
+            entries,
+        })
+    }
+
+    pub fn commit(&self, batch: Batch) -> Result<()> {
+        std::fs::remove_file(batch.intent)?;
+        Ok(())
+    }
+
+    pub fn revert(&self, _batch: Batch) -> Result<()> {
+        self.recover_unlocked()
+    }
+
+    pub fn recover(&self) -> Result<()> {
+        let _lock = self.lock()?;
+        self.recover_unlocked()
+    }
+
+    fn recover_unlocked(&self) -> Result<()> {
+        let path = self.directory.join("pending-transaction.json");
+        if !path.exists() {
+            return Ok(());
+        }
+        let entries: Vec<BatchEntry> = serde_json::from_slice(&fs::read(&path)?)?;
+        // Check all files first so a conflict cannot cause a partial restore.
+        for entry in &entries {
+            let current = read_value(&entry.path, entry.format)?;
+            if !matches(&current, &entry.receipt.after) && !matches(&current, &entry.receipt.before)
+            {
+                return Err(message(
+                    "中断操作的配置已被修改，无法自动恢复；原备份已保留",
+                ));
+            }
+        }
+        for entry in entries.iter().rev() {
+            let source = read_source(&entry.path, entry.format)?;
+            compare_and_write(
+                &entry.path,
+                &source,
+                &patched(&source, entry.format, &entry.receipt.before)?,
+            )?;
+            self.save_journal(&entry.id, entry.receipt.previous_journal.as_ref())?;
+        }
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
+    pub fn restore_changes(&self, targets: Vec<(String, PathBuf)>) -> Result<Vec<Change>> {
+        let mut changes = Vec::new();
+        for (id, path) in targets {
+            if let Some(journal) = self.load(&id)? {
+                if journal.path != path {
+                    return Err(message("配置目录已改变，无法自动恢复"));
+                }
+                let current = read_value(&path, journal.format)?;
+                if !journal_matches(&current, &journal) {
+                    return Err(message("接入字段已被修改，无法安全恢复；原备份已保留"));
+                }
+                changes.push(Change {
+                    id,
+                    path,
+                    format: journal.format,
+                    fields: journal.before,
+                });
+            }
+        }
+        if changes.is_empty() {
+            return Err(message("没有需要恢复的配置"));
+        }
+        Ok(changes)
+    }
+
+    pub fn finish_restore(&self, batch: Batch) -> Result<()> {
+        for entry in &batch.entries {
+            self.save_journal(&entry.id, None)?;
+        }
+        self.commit(batch)
     }
 
     fn save_journal(&self, app: &str, journal: Option<&Journal>) -> Result<()> {
@@ -406,4 +540,23 @@ fn compare_and_write(path: &Path, before: &str, after: &str) -> Result<()> {
         return Err(message("配置文件在操作中发生变化，请重试；未覆盖修改"));
     }
     atomic_write(path, after.as_bytes())
+}
+
+pub struct Change {
+    pub id: String,
+    pub path: PathBuf,
+    pub format: Format,
+    pub fields: Vec<Field>,
+}
+#[derive(Serialize, Deserialize)]
+struct BatchEntry {
+    id: String,
+    path: PathBuf,
+    format: Format,
+    receipt: Receipt,
+}
+pub struct Batch {
+    _lock: File,
+    intent: PathBuf,
+    entries: Vec<BatchEntry>,
 }

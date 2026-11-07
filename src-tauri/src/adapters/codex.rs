@@ -7,13 +7,16 @@ impl AppAdapter for Codex {
     fn manifest(&self) -> AppManifest {
         AppManifest {
             id: "codex",
-            name: "Codex",
-            description: "OpenAI 的编程助手",
+            name: "ChatGPT / Codex",
+            description: "OpenAI 桌面版 · TokenOne 用于 Codex 任务",
             command: "codex",
             icon: "codex",
             supports_official: true,
             platforms: &["macos", "windows"],
         }
+    }
+    fn desktop(&self) -> Option<crate::desktop_app::DesktopSpec> {
+        Some(crate::desktop_app::CODEX)
     }
     fn path(&self, context: &Context) -> Result<PathBuf> {
         Ok(context

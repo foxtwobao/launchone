@@ -13,6 +13,7 @@ export interface AppManifest {
 export interface AppStatus {
   manifest: AppManifest;
   installed: boolean;
+  tokenoneSupported: boolean;
   version: string | null;
   mode: Mode | null;
   canRestore: boolean;
@@ -39,5 +40,8 @@ export interface Bridge {
   enable(appId: string): Promise<void>;
   official(appId: string): Promise<void>;
   restore(appId: string): Promise<void>;
+  open(appId: string): Promise<void>;
+  install(appId: string): Promise<boolean>;
+  defaults(): Promise<{ appId: string; message: string }[]>;
   subscribe(callback: (progress: Progress) => void): Promise<() => void>;
 }
