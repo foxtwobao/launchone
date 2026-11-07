@@ -1,7 +1,7 @@
 {
   "name": "launchone",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TokenOne 专用应用安装与配置助手",
   "type": "module",
   "license": "MIT",

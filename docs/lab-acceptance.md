@@ -1,38 +1,28 @@
 # LaunchOne lab 验收
 
-日期：2026-11-07。只修改 LaunchOne 源码；lab 账号和邮箱设置操作按用户明确授权，通过正常 HTTPS API 完成。没有改动关联项目源码、数据库、服务构建或线上环境。
+日期：2026-11-07。只修改 LaunchOne 源码；以下配置操作仅作用于 lab，依据用户授权完成。未改动关联项目源码或生产环境。
 
 ## 已完成
 
-- IDONE 公开 Discovery 返回设备授权端点和 device_code grant。
-- Reseller 的现有登录入口正确进入 lab IDONE。
-- 临时关闭 `admin/tokenone` 注册 Email 验证，注册专用 LaunchOne lab 测试账号；在 finally 中恢复原 `Normal`，重新读取确认恢复成功。
-- 使用测试账号完成真实 IDONE 授权码/PKCE 登录，Reseller 回调返回 303，`/api/distributor/v1/me` 返回 200。
-- 测试账号保持普通 distributor 角色，没有给自己提权，没有伪标测试邮箱已验证，没有授予模型分组权益。
-- 应用管理权限检查：`GET /api/admin/one-apps` 返回 403，没有通过其他入口绕过。
-- 7 项界面测试、30 项 Rust 测试、13 项服务端测试通过；前端构建、Rust 桌面编译及链接通过，生产依赖 audit 未发现已知漏洞。
+- 独立 IDONE `admin/launchone` 客户端已登记，启用 Device login、Device Code 和 Refresh Token，与 TokenOne 使用相同组织和 subject 语义。桌面仅使用 public client id。
+- 专用普通测试账号已通过真实设备登录、UserInfo 校验和不带 client secret 的刷新；也通过正常 IDONE SSO 开通了自己的原生 TokenOne 账号。
+- 首次 `credentials` 返回待授权；Playwright 浏览器完成网关 IDONE 登录并自动返回 LaunchOne 完成页；本人会话查询成功得到 Key。再次 `credentials` 直接返回同一 Key。
+- 独立 Reseller `launchone` 服务应用，仅 `keys:ensure`；精确回调 `https://launchone.lab.home.arpa/auth/reseller/callback`；独立凭证仅在服务端。
+- 通过原生管理 API 建立 `launchone` 组合组，成员为 `GPT-企业` 与 `Claude满血`，禁用跨组重试；仅将新组加入可选组，保留原有组配置。
+- 默认模型 `gpt-5.6-sol` 的 Responses 与 `claude-sonnet-4-6` 的 Messages 均通过本人 Key 返回 HTTP 200。再次按两个适配器完全相同的 Bearer、请求体及输出上限验证，也通过成功响应检查。
+- 接入服务通过 systemd 运行于 `127.0.0.1:55410`，Caddy 提供 `https://launchone.lab.home.arpa`，可信 HTTPS 健康检查通过。入口配置见 `deploy/`。
+- lab 测试用户 335 初始额度为 0；通过原生 `POST /api/user/manage` 的 `add_quota` 增加 500000 配额，仅用于本次专用账号验收。没有调整全局计价或其他用户余额。
 
-账号密码、本人 Cookie、注册响应和邮箱规则恢复记录位于本仓库忽略的 `private/`，文件权限为 600。不得复制进源码、日志或文档。
+## 配置方式与留档
 
-## 当前阻塞
+Reseller 普通测试会话的应用管理接口返回 403，未提升账号角色或伪造管理员会话。利用用户授权的 lab 主机维护权限，仅在 Reseller 数据库事务中创建应用、独立凭证摘要和新组保留关系，写入 `lab.launchone.provision` 审计；未修改用户身份、角色、财务数据或表结构。原生 TokenOne 配置和测试额度均通过受支持的管理 API 修改，没有直接写原生数据库。
 
-现有可用的 Reseller 会话为普通用户，不能登记服务应用或生成应用凭证。IDONE 现有应用接入认证也不能读取管理签名证书；不尝试绕过权限或直接修改数据库。
+注册期间按用户此前授权临时关闭的 IDONE Email 验证已恢复为原 `Normal`，本次接入没有再次关闭。没有将测试邮箱伪标为已验证。
 
-需要现有 lab 管理员完成：
+账号、密码、Key、Cookie、配置前快照、回调响应和维护记录保存在忽略的 `private/`，目录 700、文件 600。服务环境文件同为 600。不得复制进源码、提交或公开日志。
 
-| 平台 | 最小登记项 |
-| --- | --- |
-| IDONE | 独立 LaunchOne public client；Device login、Device Code、Refresh Token；与 TokenOne 同一组织和 subject 语义，使用管理员确认的签名配置 |
-| Reseller | `launchone`，仅 `keys:ensure`；选择可用且未归属其他应用的模型默认组；回调 `https://launchone.lab.home.arpa/auth/reseller/callback`；生成独立服务端凭证 |
-| lab 入口 | 配置 LaunchOne 的 DNS、可信 HTTPS 和到 `127.0.0.1:55400` 的代理；候选片段在 `deploy/Caddyfile.lab` |
+## 验证边界
 
-不需要把普通测试账号提升为管理员才能使用产品；也可以由现有管理员直接完成登记。应用凭证只放 `server/.env`，不放进桌面包。实际 CLI 默认模型需从所选分组确认。
+隔离自动化覆盖 7 项界面、30 项 Rust、13 项服务测试，前端构建与 Linux 桌面编译链接通过；配置写入仅在临时目录，不访问真实用户配置或系统钥匙串。
 
-## 待真实验收
-
-- LaunchOne 设备登录及刷新，而不是只验证 Reseller 的已有授权码登录。
-- 首次模型授权 → 回调兑换 → ensure 取 Key → 再次使用免授权。
-- 实际 Key 的分组、额度、禁用、取消和过期处理。
-- macOS / Windows 安装、配置恢复及 Codex/Claude Code 的流式、工具调用、多轮任务。
-
-隔离 fixture 已覆盖软件流程，但不替代上述真实环境和双平台验收。
+尚待 macOS / Windows 真机验收：系统钥匙串、官方安装与登录、配置恢复、真实 CLI 的流式输出、工具调用和多轮任务。真实 HTTP 成功不等于这些项目已通过。取消、过期、禁用和额度耗尽在隔离测试中覆盖，尚未对所有真实 lab 状态逐项执行。

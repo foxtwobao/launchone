@@ -2,7 +2,7 @@
 
 TokenOne 专用的桌面安装配置助手。首版支持 Codex CLI、Claude Code，用户界面只有登录和应用卡片。
 
-当前已实现单页界面、Tauri 命令、内置应用注册表、双工具配置适配器、官方渠道安装入口、字段备份恢复、IDONE 设备登录和最小服务端取 Key/授权衔接。**真实 IDONE → TokenOne 会话与取 Key 衔接尚未联调，当前不是可直接交付用户的正式版本。**
+当前已实现单页界面、Tauri 命令、内置应用注册表、双工具配置适配器、官方渠道安装入口、字段备份恢复、IDONE 设备登录和最小服务端取 Key/授权衔接。**lab 已通过真实设备登录、刷新、首次浏览器授权、个人 Key 获取及默认模型 HTTP 调用；当前供内测，仍需 macOS / Windows 真机 CLI 验收。**
 
 ## 本地运行
 
@@ -66,13 +66,11 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 后续必须完成：
 
-- 在 lab 配置并部署已实现的最小接入服务，完成真实设备登录、首次模型授权和重复取 Key 联调。服务端配置见 [server/.env.example](server/.env.example)。
-- 登记独立 IDONE 设备客户端、Reseller 服务应用、默认组和 HTTPS 模型授权回调；使用已建立的 lab 测试账号继续验收，确认 CLI 模型。
 - macOS、Windows 真机验证安装、原生登录、实际 CLI 工具调用和已有配置兼容性。
 - 完成 Windows 配置及备份文件的当前用户访问权限验证。
 - 正式分发前配置 Apple Developer 签名与公证；内测可使用本地签名包。
 
-已按授权建立 lab 测试账号并成功登录 Reseller，邮箱验证已恢复原设置。当前账号是普通用户，应用管理接口返回 403；待现有管理员完成 LaunchOne 应用登记后继续真实取 Key。见 [lab 验收记录](docs/lab-acceptance.md)。
+已按授权配置独立 lab 应用、模型组和 HTTPS 接入服务，专用普通账号已通过真实授权取 Key 及模型请求，邮箱验证已恢复原设置。新版 Mac 包内置 lab 发布参数，缺少参数会在打包时失败。见 [lab 验收记录](docs/lab-acceptance.md)。
 
 HTTP 网关测试成功只能说明基础接入可用，不能替代真实 CLI 的工具调用、多轮会话验收。
 

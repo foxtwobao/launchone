@@ -1,0 +1,23 @@
+[Unit]
+Description=LaunchOne lab credential service
+Wants=network-online.target
+After=network-online.target caddy.service tokenone-reseller-local.service
+
+[Service]
+Type=simple
+User=hulei
+Group=hulei
+WorkingDirectory=/home/hulei/projects/launchone
+EnvironmentFile=/home/hulei/projects/launchone/server/.env
+Environment=NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+ExecStart=/home/hulei/.local/bin/node /home/hulei/projects/launchone/server/main.mjs
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

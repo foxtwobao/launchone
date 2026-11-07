@@ -1,6 +1,6 @@
 # IDONE / TokenOne 接入说明
 
-已只读核对 IDONE、CreativeOne 与 Reseller 源码，并查询 lab 的公开接口。LaunchOne 已实现设备登录、最小可信服务端和桌面取 Key；隔离测试已通过，已建立真实 lab 测试账号并完成 Reseller SSO 登录；独立客户端、应用登记及真实取 Key 尚待完成。
+已只读核对 IDONE、CreativeOne 与 Reseller 源码，并查询 lab 的公开接口。LaunchOne 已完成独立 lab 客户端和应用登记、HTTPS 服务部署，真实设备登录、刷新、浏览器授权、个人 Key 获取及默认模型 HTTP 调用均已通过。真机 CLI 验收仍待完成。
 
 ## 用户流程
 
@@ -67,14 +67,11 @@ Content-Type: application/json
 
 ## lab 准备和运行
 
-已确认三个已有 origin：IDONE `https://idone.lab.home.arpa`、Reseller `https://tokenonereseller.lab.home.arpa`、模型 `https://tokenone.lab.home.arpa`。LaunchOne 的拟用服务 origin 为 `https://launchone.lab.home.arpa`，不是已部署地址。
+lab 已部署：IDONE `https://idone.lab.home.arpa`、Reseller `https://tokenonereseller.lab.home.arpa`、模型 `https://tokenone.lab.home.arpa`、接入服务 `https://launchone.lab.home.arpa`。
 
-需登记：
+独立 IDONE LaunchOne 客户端已启用设备登录及刷新。Reseller 应用为 `launchone`，权限仅 `keys:ensure`，精确回调为 `https://launchone.lab.home.arpa/auth/reseller/callback`。独立默认组合组 `launchone` 包含 `GPT-企业` 与 `Claude满血`，默认模型分别为 `gpt-5.6-sol` 和 `claude-sonnet-4-6`。
 
-- IDONE：独立 LaunchOne public client，启用上述设备登录和刷新，核验 subject 语义。
-- Reseller：`launchone` 服务应用、`keys:ensure`、可用且未归属其他应用的默认组、精确回调 `https://launchone.lab.home.arpa/auth/reseller/callback`；生成专用应用凭证。
-- LaunchOne：配置 DNS/HTTPS 入口；本仓库提供 `deploy/Caddyfile.lab` 片段，不自动改写其他仓库的代理配置。
-- 测试账号：已沿 lab 原生注册/登录链路建立并成功登录 Reseller。按用户明确授权，注册期间临时将 `admin/tokenone` 的 Email 规则改为 `No verification`，在 finally 中恢复原 `Normal` 并重新查询确认；没有把测试邮箱伪标为已验证。注册本身不授予管理员权限，也不自动提供模型分组权益。
+测试账号通过正常 IDONE SSO 开通 TokenOne，保持普通用户。注册时临时关闭的邮箱验证已恢复。应用配置通过已授权的 lab 主机维护操作完成；具体范围和审计见 [lab 验收记录](lab-acceptance.md)。
 
 服务端准备（`.env` 只放服务机，权限设为 600）：
 
@@ -85,7 +82,7 @@ chmod 600 server/.env
 NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt npm run service
 ```
 
-服务默认只监听 `127.0.0.1:55400`，通过 HTTPS 反向代理访问。代理、APM 不采集认证路径的 query/body/header；不启用认证 URL 的访问日志。服务重启会使进行中的授权失效，不影响 Reseller 已保存的授权。
+服务默认监听 `127.0.0.1:55400`；本次 lab 显式使用空闲的 `127.0.0.1:55410`，通过 HTTPS 反向代理访问，systemd 单元见 `deploy/launchone-lab.service`。代理、APM 不采集认证路径的 query/body/header；不启用认证 URL 的访问日志。服务重启会使进行中的授权失效，不影响 Reseller 已保存的授权。
 
 桌面发布方配置见根目录 `.env.example`，只包含 issuer、public client id、接入服务地址、工具 Base URL 和模型，不包含服务端凭证。Codex Base URL 含 `/v1`，Claude Code 不含 `/v1`，避免重复拼接。
 
@@ -95,7 +92,7 @@ NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt npm run service
 
 2026-11-07：已通过 13 项服务端测试、30 项 Rust 测试及前端构建/界面测试。身份和模型服务均使用隔离 fixture；不访问系统凭据存储，配置写入只使用临时目录。通过 fixture 不代表真实 lab 或 macOS/Windows 真机验收完成。
 
-本次 lab 已确认公开 Discovery、SSO 入口、客户端登录方式，完成真实测试账号注册及 Reseller 登录，`/api/distributor/v1/me` 返回 200。测试账号角色为 distributor，`GET /api/admin/one-apps` 返回 403；当前正常会话无权登记应用。尚未登记 `launchone` 应用、生成应用凭证、部署入口或调用真实模型。继续真实取 Key 验收需要现有 lab 管理员完成应用登记与客户端配置；不通过直接改库伪造身份或提权。账号、Cookie 和恢复记录仅保存在本仓库忽略的 `private/`，权限为当前用户可读写，内容不进入文档、日志和提交。
+本次真实 lab 验证包括：设备登录、无 secret 刷新、UserInfo、正常原生账号 SSO、首次浏览器授权自动返回、个人 Key 获取和重复取同一 Key；两个默认模型按适配器的实际 HTTP 请求均返回成功。账号、Cookie、Key 和维护快照仅位于忽略的 `private/`，不会进入文档、日志和提交。
 
 完整 lab 验收记录见 [lab-acceptance.md](lab-acceptance.md)。
 

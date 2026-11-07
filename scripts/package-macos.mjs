@@ -15,6 +15,22 @@ const output = join(root, 'output', 'macos');
 const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const env = { ...process.env, CARGO_TARGET_DIR: target };
 
+// A distributable package must have usable service settings. Fail the build
+// instead of shipping an app with disabled login and TokenOne buttons.
+const requiredSettings = [
+  'LAUNCHONE_IDONE_ISSUER', 'LAUNCHONE_CLIENT_ID', 'LAUNCHONE_SERVICE_URL',
+  'LAUNCHONE_CODEX_BASE_URL', 'LAUNCHONE_CODEX_MODEL',
+  'LAUNCHONE_CLAUDE_BASE_URL', 'LAUNCHONE_CLAUDE_MODEL',
+];
+const missing = requiredSettings.filter(key => !env[key]?.trim());
+if (missing.length) throw new Error(`打包配置缺失：${missing.join(', ')}`);
+for (const key of requiredSettings.filter(key => key.endsWith('_URL') || key.endsWith('_ISSUER'))) {
+  const url = new URL(env[key]);
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    throw new Error(`打包配置必须为不含凭据的 HTTPS 地址：${key}`);
+  }
+}
+
 function run(command, args) {
   const result = spawnSync(command, args, { cwd: root, env, stdio: 'inherit' });
   if (result.error) throw result.error;
