@@ -229,6 +229,92 @@ pub async fn launch(spec: DesktopSpec, home: &Path) -> Result<()> {
     Ok(())
 }
 
+const MAC_REOPEN_SCRIPT: &str = r#"
+on run argv
+    set targetPath to item 1 of argv
+    if application targetPath is running then
+        tell application targetPath to quit
+        repeat 80 times
+            if not (application targetPath is running) then return
+            delay 0.25
+        end repeat
+        error "Application is still running"
+    end if
+end run
+"#;
+
+fn windows_quit_script(app: &Installation) -> String {
+    // The target was obtained from verified native installation metadata. Quote
+    // it as a PowerShell literal, never as shell command text or a process name.
+    let target = app.target.to_string_lossy().replace('\'', "''");
+    let root = if app.packaged {
+        format!(
+            r#"
+$family=('{target}' -split '!')[0]
+$package=Get-AppxPackage | Where-Object {{$_.PackageFamilyName -eq $family}} | Select-Object -First 1
+if(!$package -or !$package.InstallLocation) {{ throw 'Package unavailable' }}
+$root=$package.InstallLocation.TrimEnd('\')+'\'
+"#
+        )
+    } else {
+        format!("$root='{target}'")
+    };
+    format!(
+        r#"
+$ErrorActionPreference='Stop'
+{root}
+function Find-TargetProcesses {{
+ Get-Process | Where-Object {{
+  try {{ $path=$_.Path; $path -and $(if({packaged}){{ $path.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) }}else{{ $path -eq $root }}) }} catch {{ $false }}
+ }}
+}}
+$processes=@(Find-TargetProcesses)
+foreach($process in $processes) {{
+ if($process.MainWindowHandle -ne 0) {{ [void]$process.CloseMainWindow() }}
+}}
+$deadline=[DateTime]::UtcNow.AddSeconds(20)
+while(@(Find-TargetProcesses).Count -gt 0) {{
+ if([DateTime]::UtcNow -ge $deadline) {{ throw 'Application is still running' }}
+ Start-Sleep -Milliseconds 250
+}}
+"#,
+        packaged = if app.packaged { "$true" } else { "$false" }
+    )
+}
+
+pub async fn reopen(spec: DesktopSpec, home: &Path) -> Result<()> {
+    let app = detect(spec, home)
+        .await?
+        .ok_or_else(|| message("尚未检测到桌面应用，请先安装或重新检测"))?;
+    let mut command = if cfg!(target_os = "macos") {
+        let mut c = Command::new("/usr/bin/osascript");
+        c.args(["-e", MAC_REOPEN_SCRIPT]).arg(&app.target);
+        c
+    } else if cfg!(windows) {
+        let mut c = Command::new("powershell.exe");
+        c.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &windows_quit_script(&app),
+        ]);
+        #[cfg(windows)]
+        c.creation_flags(0x08000000);
+        c
+    } else {
+        return Err(message("当前平台暂不支持桌面应用"));
+    };
+    // A timeout only stops our helper, never the target application or its tasks.
+    let result =
+        tokio::time::timeout(Duration::from_secs(30), command.kill_on_drop(true).output()).await;
+    match result {
+        Ok(Ok(output)) if output.status.success() => launch(spec, home).await,
+        _ => Err(message(
+            "应用尚未正常退出。请保存工作并完全退出应用后，再点击打开；未强制结束进程",
+        )),
+    }
+}
+
 pub fn download_url(spec: DesktopSpec) -> &'static str {
     if cfg!(target_os = "macos") {
         spec.mac_download
@@ -386,6 +472,53 @@ mod windows_tests {
     use serde_json::json;
 
     #[tokio::test]
+    async fn quit_script_closes_only_the_verified_app_with_no_forced_termination() {
+        for packaged in [false, true] {
+            let path = r"D:\Apps\it's fixture\Claude.exe";
+            let app = Installation {
+                target: if packaged {
+                    "Fixture!App".into()
+                } else {
+                    path.into()
+                },
+                version: None,
+                packaged,
+                gateway_supported: true,
+            };
+            let script = format!(
+                r#"
+$script:closed=$false
+function Get-AppxPackage {{ [pscustomobject]@{{PackageFamilyName='Fixture';InstallLocation="D:\Apps\it's fixture"}} }}
+function Get-Process {{
+ if(!$script:closed) {{
+  $app=[pscustomobject]@{{Path=$env:LAUNCHONE_QUIT_FIXTURE;MainWindowHandle=42}}
+  $app | Add-Member -MemberType ScriptMethod -Name CloseMainWindow -Value {{$script:closed=$true;return $true}}
+  $app
+ }}
+ $other=[pscustomobject]@{{Path='D:\Other\Claude.exe';MainWindowHandle=43}}
+ $other | Add-Member -MemberType ScriptMethod -Name CloseMainWindow -Value {{throw 'Unrelated app was touched'}}
+ $other
+}}
+{}
+if(!$script:closed) {{ throw 'Target app was not closed' }}
+"#,
+                windows_quit_script(&app)
+            );
+            let output = Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                .env("LAUNCHONE_QUIT_FIXTURE", path)
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn native_detection_script_handles_official_package_identities_in_isolation() {
         // Execute the real PowerShell script with isolated command fixtures. Never
         // inspect installed apps, registry entries, user configs or credentials.
@@ -447,5 +580,26 @@ function Test-Path {{ throw 'Fixture unexpectedly reached filesystem fallback' }
             assert!(app.packaged);
             assert_eq!(app.gateway_supported, gateway);
         }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mac_tests {
+    use super::*;
+    #[tokio::test]
+    async fn quit_script_compiles_without_accessing_any_target_app() {
+        let temp = tempfile::tempdir().unwrap();
+        let output = Command::new("/usr/bin/osacompile")
+            .arg("-o")
+            .arg(temp.path().join("quit.scpt"))
+            .args(["-e", MAC_REOPEN_SCRIPT])
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

@@ -112,6 +112,19 @@ mod desktop {
     }
 
     #[tauri::command]
+    async fn reopen_app(
+        app: tauri::AppHandle,
+        runtime: State<'_, Arc<Runtime>>,
+        app_id: String,
+    ) -> Result<()> {
+        runtime
+            .reopen(&app_id, |p| {
+                let _ = app.emit("setup-progress", p);
+            })
+            .await
+    }
+
+    #[tauri::command]
     async fn install_app(
         app: tauri::AppHandle,
         runtime: State<'_, Arc<Runtime>>,
@@ -173,6 +186,7 @@ mod desktop {
                 use_official,
                 restore_app,
                 open_app,
+                reopen_app,
                 install_app,
                 prepare_defaults
             ])

@@ -1,6 +1,6 @@
 # IDONE / TokenOne 接入说明
 
-已只读核对 IDONE、CreativeOne 与 Reseller 源码，并查询 lab 的公开接口。LaunchOne 已完成独立 lab 客户端和应用登记、HTTPS 服务部署，真实设备登录、刷新、浏览器授权、个人 Key 获取及默认模型 HTTP 调用均已通过。真机 CLI 验收仍待完成。
+已只读核对 IDONE、CreativeOne 与 Reseller 源码，并查询 lab 的公开接口。LaunchOne 已完成独立 lab 客户端和应用登记、HTTPS 服务部署，真实设备登录、刷新、浏览器授权、个人 Key 获取、默认模型 HTTP 调用以及隔离 CLI 的模型和工具调用均已通过。macOS / Windows 桌面目标应用仍待真机验收。
 
 ## 用户流程
 
@@ -90,7 +90,7 @@ NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt npm run service
 
 ## 验证状态
 
-2026-11-07：已通过 13 项服务端测试、30 项 Rust 测试及前端构建/界面测试。身份和模型服务均使用隔离 fixture；不访问系统凭据存储，配置写入只使用临时目录。通过 fixture 不代表真实 lab 或 macOS/Windows 真机验收完成。
+2026-11-07，0.2.1：本地已通过 13 项服务端、37 项 Rust、18 项界面测试及桌面编译检查。自动化中的身份和模型服务使用隔离 fixture；不访问系统凭据存储，配置写入只使用临时目录。通过 fixture 不代表真实 lab 或 macOS/Windows 真机验收完成。
 
 本次真实 lab 验证包括：设备登录、无 secret 刷新、UserInfo、正常原生账号 SSO、首次浏览器授权自动返回、个人 Key 获取和重复取同一 Key；两个默认模型按适配器的实际 HTTP 请求均返回成功。账号、Cookie、Key 和维护快照仅位于忽略的 `private/`，不会进入文档、日志和提交。
 
@@ -108,4 +108,4 @@ Codex 使用同一份 `config.toml` 和原有 `codex` 备份所有权，避免�
 
 Claude Desktop 使用 `Claude`、`Claude-3p` 的部署模式与独立 `configLibrary` 配置，单独的 LaunchOne profile；不写 Claude Code CLI 的 settings。四份配置作为一个可恢复事务处理。切回订阅移除本 profile 的网关 Key 并回到官方部署模式；恢复原配置则恢复首次变更前的相关字段，二者不等同。
 
-用户选择保存在本机应用数据目录，不含 Key。只有已安装应用、有效 IDONE 会话且没有先前管理备份或明确选择时，首次默认准备才会运行；登录不会批量安装其他应用。切换之后需要用户退出并重新打开目标应用，LaunchOne 不自动终止任务。
+用户选择保存在本机应用数据目录，不含 Key。只有已安装应用、有效 IDONE 会话且没有先前管理备份或明确选择时，首次默认准备才会运行；登录不会批量安装其他应用。切换后显示确认框，确认后才正常退出并重新打开。选择稍后会持久保留待重开提醒；退出失败不强制结束进程。

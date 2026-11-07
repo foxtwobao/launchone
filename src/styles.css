@@ -79,7 +79,7 @@ footer { border-top: 1px solid var(--border); height: 62px; display: flex; align
 .tool-menu, .account-menu { position: relative; }
 summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
 summary::-webkit-details-marker { display: none; }
-.tool-menu summary { color: #8c94a0; width: 30px; height: 30px; margin-top: -4px; margin-right: -7px; }
+.tool-menu summary { color: #737d8c; gap: 4px; padding: 0 7px; height: 30px; font-size: 11px; margin-top: -4px; margin-right: -7px; }
 summary:hover { background: #f1f3f6; }
 .menu-panel { position: absolute; z-index: 5; right: 0; top: calc(100% + 5px); border: 1px solid var(--border); box-shadow: 0 8px 24px #172b4814; background: #fff; padding: 5px; min-width: 190px; border-radius: 9px; }
 .menu-panel button { border: 0; background: none; width: 100%; min-height: 38px; font-size: 11px; color: #424d5f; display: flex; align-items: center; gap: 8px; border-radius: 5px; padding: 8px; text-align: left; }
@@ -138,3 +138,10 @@ summary:hover { background: #f1f3f6; }
 .mode-switch button:disabled:not([aria-pressed="true"]) { color: #a1a7b0; }
 .mode-hint { margin: 0 0 12px; font-size: 10px; color: var(--muted); line-height: 1.7; }
 .setup-button:not(:disabled) { background: #2457eb; border-color: #2457eb; color: white; }
+.reopen-dialog { width: min(420px, calc(100vw - 40px)); border: 1px solid var(--border); border-radius: 13px; padding: 26px; color: #202733; box-shadow: 0 16px 60px #172b4826; }
+.reopen-dialog::backdrop { background: #172b4855; }
+.reopen-dialog h2 { font-size: 17px; margin: 0 0 14px; }
+.reopen-dialog p { font-size: 12px; color: var(--muted); line-height: 1.8; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.dialog-actions .setup-button { width: auto; padding: 0 18px; background: white; color: #667180; border-color: #dce1e9; }
+.dialog-actions .primary-button { margin: 0; }

@@ -49,6 +49,7 @@ impl Runtime {
                 .get(adapter.manifest().id)
                 .map(|(url, _)| url.as_str());
             let mode = adapter.current_mode(&self.context, endpoint);
+            let restart = self.preferences.needs_restart(adapter.manifest().id);
             let backup = adapter
                 .targets(&self.context)
                 .map(|t| t.iter().any(|(id, _)| self.store.can_restore(id)))
@@ -57,6 +58,7 @@ impl Runtime {
                 manifest: adapter.manifest(),
                 installed: installed.is_some(),
                 tokenone_supported: installed.as_ref().is_none_or(|a| a.gateway_supported),
+                restart_required: restart.as_ref().is_ok_and(|v| *v),
                 version: installed.and_then(|a| a.version),
                 mode: mode.as_ref().ok().copied().flatten(),
                 can_restore: backup,
@@ -64,6 +66,7 @@ impl Runtime {
                 error: recovery_error
                     .clone()
                     .or(detection_error)
+                    .or_else(|| restart.err().map(|e| e.to_string()))
                     .or_else(|| mode.err().map(|e| e.to_string())),
             });
         }
@@ -119,8 +122,15 @@ impl Runtime {
     }
 
     pub async fn open(&self, app: &str) -> Result<()> {
+        let _operation = self
+            .operation
+            .try_lock()
+            .map_err(|_| message("另一项操作正在进行，请稍后再试"))?;
         let adapter = self.registry.get(app)?;
         ensure_supported(adapter)?;
+        if self.preferences.needs_restart(app)? {
+            return Err(message("配置已更新，请确认重新打开应用以使配置生效"));
+        }
         desktop_app::launch(
             adapter
                 .desktop()
@@ -128,6 +138,30 @@ impl Runtime {
             &self.context.home,
         )
         .await
+    }
+
+    // Only the explicit confirmation action invokes this command. Never kill a
+    // process; an app that refuses a normal quit must be handled by the user.
+    pub async fn reopen(&self, app: &str, emit: impl Fn(Progress)) -> Result<()> {
+        let _operation = self
+            .operation
+            .try_lock()
+            .map_err(|_| message("另一项操作正在进行，请稍后再试"))?;
+        let adapter = self.registry.get(app)?;
+        ensure_supported(adapter)?;
+        emit(Progress {
+            app_id: app.into(),
+            stage: "reopening",
+            message: "正在重新打开应用".into(),
+        });
+        desktop_app::reopen(
+            adapter
+                .desktop()
+                .ok_or_else(|| message("此工具没有桌面入口"))?,
+            &self.context.home,
+        )
+        .await?;
+        self.preferences.opened(app)
     }
 
     pub async fn install(

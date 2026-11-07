@@ -6,7 +6,7 @@ import type { AppStatus, Bridge, Snapshot } from "../src/lib/types";
 
 function tool(id = "future-tool", name = "Future Tool"): AppStatus {
   return { manifest:{id,name,description:"可扩展桌面应用",command:"",icon:"generic",supportsOfficial:true,platforms:["macos"]},
-    installed:true,tokenoneSupported:true,version:"1.0",mode:"official",canRestore:false,supported:true,error:null };
+    installed:true,tokenoneSupported:true,restartRequired:false,version:"1.0",mode:"official",canRestore:false,supported:true,error:null };
 }
 function setup(overrides:Partial<Snapshot>={}, changes:Partial<Bridge>={}) {
   const snapshot:Snapshot={apps:[tool()],account:{id:"user",name:"开发者"},desktop:true,loginReady:true,tokenoneReady:true,...overrides};
@@ -16,7 +16,7 @@ function setup(overrides:Partial<Snapshot>={}, changes:Partial<Bridge>={}) {
     cancelLogin:vi.fn(async()=>{}),logout:vi.fn(async()=>{snapshot.account=null;}),
     enable:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.mode="tokenone";}),
     official:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.mode="official";}),
-    restore:vi.fn(async()=>{}),open:vi.fn(async()=>{}),install:vi.fn(async()=>true),defaults:vi.fn(async()=>[]),
+    restore:vi.fn(async()=>{}),open:vi.fn(async()=>{}),reopen:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.restartRequired=false;}),install:vi.fn(async()=>true),defaults:vi.fn(async()=>[]),
     subscribe:vi.fn(async()=>()=>{}),...changes,
   };
   const view=render(<App api={api}/>);
@@ -109,4 +109,52 @@ test("设备登录和模型授权可取消，Key 不进入页面",async()=>{
   expect(screen.getByRole("status")).toHaveTextContent("ABCD");
   await userEvent.click(screen.getByRole("button",{name:"取消登录"}));expect(api.cancelLogin).toHaveBeenCalledOnce();
   await act(async()=>finish());expect(screen.queryByRole("alert")).not.toBeInTheDocument();expect(screen.queryByText(/sk-/)).not.toBeInTheDocument();
+});
+
+test("切换后先确认，选择稍后不退出应用，再次打开仍可确认重开",async()=>{
+  const {api,snapshot}=setup();await idle();
+  vi.mocked(api.enable).mockImplementationOnce(async()=>{snapshot.apps[0].mode="tokenone";snapshot.apps[0].restartRequired=true;});
+  await userEvent.click(screen.getByRole("button",{name:"Future Tool：TokenOne"}));
+  expect(await screen.findByRole("dialog",{name:"重新打开，使配置生效"})).toHaveTextContent("Future Tool");
+  expect(api.reopen).not.toHaveBeenCalled();expect(api.open).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button",{name:"稍后"}));await idle();
+  expect(snapshot.apps[0].restartRequired).toBe(true);
+  await userEvent.click(screen.getByRole("button",{name:"Future Tool：打开"}));
+  await userEvent.click(await screen.findByRole("button",{name:"重新打开"}));
+  await waitFor(()=>expect(api.reopen).toHaveBeenCalledWith("future-tool"));await idle();
+  expect(snapshot.apps[0].restartRequired).toBe(false);
+  expect(api.enable).toHaveBeenCalledOnce();
+});
+test("重开失败保留待重开状态和已选模式，允许稍后再试",async()=>{
+  const app=tool();app.restartRequired=true;
+  const {api,snapshot}=setup({account:null,apps:[app]}, {reopen:vi.fn(async()=>{throw "请保存工作并完全退出应用后重试";})});
+  await userEvent.click(await screen.findByRole("button",{name:"Future Tool：打开"}));
+  await userEvent.click(await screen.findByRole("button",{name:"重新打开"}));
+  expect(await screen.findByRole("alert")).toHaveTextContent("请保存工作");await idle();
+  expect(snapshot.apps[0].restartRequired).toBe(true);expect(snapshot.apps[0].mode).toBe("official");
+  expect(api.open).not.toHaveBeenCalled();
+});
+test("首次准备多个应用只显示一次确认，未确认不重开任何应用",async()=>{
+  const {api,snapshot}=setup({apps:[tool(),tool("second-tool","Second Tool")]});
+  vi.mocked(api.defaults).mockImplementation(async()=>{snapshot.apps.forEach(app=>{app.restartRequired=true;});return [];});
+  const dialog=await screen.findByRole("dialog");
+  expect(dialog).toHaveTextContent("Future Tool、Second Tool");expect(api.reopen).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button",{name:"重新打开"}));
+  await waitFor(()=>expect(api.reopen).toHaveBeenCalledTimes(2));
+  expect(api.reopen).toHaveBeenNthCalledWith(1,"future-tool");expect(api.reopen).toHaveBeenNthCalledWith(2,"second-tool");
+});
+test("高级入口明确显示恢复原配置及无备份说明",async()=>{
+  setup();await idle();
+  await userEvent.click(screen.getByLabelText("Future Tool 高级操作"));
+  expect(screen.getByRole("button",{name:"恢复原配置"})).toBeDisabled();
+  expect(screen.getByText("暂无可恢复的备份")).toBeVisible();
+});
+test("高级恢复原配置可用且恢复后需要确认重开",async()=>{
+  const app=tool();app.canRestore=true;
+  const {api,snapshot}=setup({apps:[app]});await idle();
+  vi.mocked(api.restore).mockImplementationOnce(async()=>{snapshot.apps[0].canRestore=false;snapshot.apps[0].restartRequired=true;});
+  await userEvent.click(screen.getByLabelText("Future Tool 高级操作"));
+  await userEvent.click(screen.getByRole("button",{name:"恢复原配置"}));
+  expect(api.restore).toHaveBeenCalledWith("future-tool");
+  expect(await screen.findByRole("dialog")).toBeVisible();expect(api.reopen).not.toHaveBeenCalled();
 });

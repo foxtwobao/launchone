@@ -2,12 +2,17 @@ use crate::config::atomic_write;
 use crate::error::{message, Result};
 use crate::models::Mode;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Choices {
     // A present null entry means the user explicitly restored their original config.
     apps: BTreeMap<String, Option<Mode>>,
+    #[serde(default)]
+    restart_required: BTreeSet<String>,
 }
 
 pub struct Preferences(PathBuf);
@@ -31,6 +36,15 @@ impl Preferences {
         }
         let mut choices = self.read()?;
         choices.apps.insert(app.into(), mode);
+        choices.restart_required.insert(app.into());
+        atomic_write(&self.0, &serde_json::to_vec(&choices)?)
+    }
+    pub fn needs_restart(&self, app: &str) -> Result<bool> {
+        Ok(self.read()?.restart_required.contains(app))
+    }
+    pub fn opened(&self, app: &str) -> Result<()> {
+        let mut choices = self.read()?;
+        choices.restart_required.remove(app);
         atomic_write(&self.0, &serde_json::to_vec(&choices)?)
     }
 }
@@ -46,6 +60,11 @@ mod tests {
         assert!(p.wants_default("codex", false).unwrap());
         assert!(!p.wants_default("codex", true).unwrap());
         p.remember("codex", Some(Mode::Official)).unwrap();
+        assert!(Preferences::new(path.clone())
+            .needs_restart("codex")
+            .unwrap());
+        p.opened("codex").unwrap();
+        assert!(!p.needs_restart("codex").unwrap());
         assert!(!Preferences::new(path.clone())
             .wants_default("codex", false)
             .unwrap());

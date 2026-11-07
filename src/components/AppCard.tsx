@@ -57,9 +57,10 @@ export function AppCard({ app, signedIn, desktop, ready, busy, progress, error, 
         {app.manifest.icon === "claude" ? <Asterisk size={34} strokeWidth={1.5} /> : <Terminal size={27} strokeWidth={1.8} />}
       </div>
       <details ref={menu} className="tool-menu" onToggle={event => setMenuOpen(event.currentTarget.open)}>
-        <summary aria-label={`${name} 更多操作`} aria-expanded={menuOpen}><Ellipsis size={20} /></summary>
+        <summary aria-label={`${name} 高级操作`} aria-expanded={menuOpen}>高级<Ellipsis size={15} /></summary>
         <div className="menu-panel">
           <button disabled={!app.canRestore || busy} onClick={() => action(onRestore)}><RotateCcw size={15} />恢复原配置</button>
+          {!app.canRestore && <p>暂无可恢复的备份</p>}
         </div>
       </details>
     </div>
@@ -75,7 +76,7 @@ export function AppCard({ app, signedIn, desktop, ready, busy, progress, error, 
       <button aria-label={`${name}：TokenOne`} aria-pressed={app.installed && app.mode === "tokenone"} disabled={busy || unavailable || !app.installed || !signedIn || !ready || !app.tokenoneSupported || (app.mode === "tokenone" && !problem)} onClick={onEnable}>TokenOne</button>
       {app.manifest.supportsOfficial && <button aria-label={`${name}：官方订阅`} aria-pressed={app.installed && app.mode === "official"} disabled={busy || unavailable || !app.installed || app.mode === "official"} onClick={onOfficial}>官方订阅</button>}
     </div>
-    {app.installed && app.mode && <p className="mode-hint">切换后请先退出原应用，再点击“打开”使配置生效。</p>}
+    {app.installed && app.restartRequired && <p className="mode-hint">待重新打开使配置生效，点击“打开”后确认即可。</p>}
     {app.installed && !app.tokenoneSupported && <p className="mode-hint">当前版本未检测到 Codex 网关支持，请先升级官方桌面应用。仍可直接打开使用。</p>}
     {app.installed && !signedIn && <p className="mode-hint">登录 IDONE 后可使用 TokenOne；打开应用和官方订阅无需登录。</p>}
     <button className="setup-button" disabled={busy || unavailable || (!app.installed && Boolean(app.error))} onClick={app.installed ? onOpen : onInstall} aria-label={`${name}：${label}`}>

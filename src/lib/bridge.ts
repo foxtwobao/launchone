@@ -12,7 +12,7 @@ export const bridge: Bridge = {
   async snapshot() {
     if (isTauri()) return invoke<Snapshot>("get_snapshot");
     return {
-      apps: previewManifests.map(manifest => ({ manifest, installed: false, tokenoneSupported: true, version: null, mode: null, canRestore: false, supported: false, error: null })),
+      apps: previewManifests.map(manifest => ({ manifest, installed: false, tokenoneSupported: true, restartRequired: false, version: null, mode: null, canRestore: false, supported: false, error: null })),
       account: null, loginReady: false, tokenoneReady: false, desktop: false,
     };
   },
@@ -23,6 +23,7 @@ export const bridge: Bridge = {
   official: appId => invoke("use_official", { appId }),
   restore: appId => invoke("restore_app", { appId }),
   open: appId => invoke("open_app", { appId }),
+  reopen: appId => invoke("reopen_app", { appId }),
   install: appId => invoke("install_app", { appId }),
   defaults: () => invoke("prepare_defaults"),
   async subscribe(callback) {

@@ -25,6 +25,7 @@ pub struct AppStatus {
     pub manifest: AppManifest,
     pub installed: bool,
     pub tokenone_supported: bool,
+    pub restart_required: bool,
     pub version: Option<String>,
     pub mode: Option<Mode>,
     pub can_restore: bool,
