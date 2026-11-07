@@ -93,7 +93,7 @@ impl ConfigStore {
         fields: Vec<Field>,
     ) -> Result<Receipt> {
         let _lock = self.lock()?;
-        self.apply_unlocked(app, path, format, fields)
+        self.apply_unlocked(app, path, format, fields, false)
     }
 
     fn apply_unlocked(
@@ -102,6 +102,7 @@ impl ConfigStore {
         path: &Path,
         format: Format,
         fields: Vec<Field>,
+        restoring: bool,
     ) -> Result<Receipt> {
         let source = read_source(path, format)?;
         let current = parse(&source, format)?;
@@ -111,7 +112,7 @@ impl ConfigStore {
                 return Err(message("配置目录已改变，请先恢复原目录中的修改"));
             }
             // Also accepts an interrupted write where the old state is still on disk.
-            if !journal_matches(&current, journal) {
+            if !restoring && !journal_matches(&current, journal) {
                 return Err(message(
                     "接入配置已被其他程序修改，请先检查配置，避免覆盖你的修改",
                 ));
@@ -187,10 +188,6 @@ impl ConfigStore {
             return Err(message("配置目录已改变，无法自动恢复"));
         }
         let source = read_source(&journal.path, journal.format)?;
-        let value = parse(&source, journal.format)?;
-        if !journal_matches(&value, &journal) {
-            return Err(message("接入字段已被修改，无法安全恢复；原备份已保留"));
-        }
         compare_and_write(
             &journal.path,
             &source,
@@ -202,6 +199,16 @@ impl ConfigStore {
     // Hold the file lock through verification. The complete rollback intent is
     // persisted before the first file changes, including multi-file desktop configs.
     pub fn begin(&self, app: &str, changes: Vec<Change>) -> Result<Batch> {
+        self.begin_internal(app, changes, false)
+    }
+
+    /// Explicit restore replaces all originally managed fields, even if the
+    /// client or user has since changed them. Other settings remain untouched.
+    pub fn begin_restore(&self, app: &str, changes: Vec<Change>) -> Result<Batch> {
+        self.begin_internal(app, changes, true)
+    }
+
+    fn begin_internal(&self, app: &str, changes: Vec<Change>, restoring: bool) -> Result<Batch> {
         let lock = self.lock()?;
         self.recover_unlocked()?;
         let mut entries = Vec::new();
@@ -210,10 +217,9 @@ impl ConfigStore {
             let source = read_source(&change.path, change.format)?;
             let current = parse(&source, change.format)?;
             let previous = self.load(&change.id)?;
-            if previous
-                .as_ref()
-                .is_some_and(|j| j.path != change.path || !journal_matches(&current, j))
-            {
+            if previous.as_ref().is_some_and(|j| {
+                j.path != change.path || (!restoring && !journal_matches(&current, j))
+            }) {
                 return Err(message("接入配置已被其他程序修改，原备份已保留"));
             }
             // Preflight every parse and patch before mutating any file.
@@ -233,9 +239,13 @@ impl ConfigStore {
         let intent = self.directory.join("pending-transaction.json");
         atomic_write(&intent, &serde_json::to_vec(&entries)?)?;
         for change in changes {
-            if let Err(e) =
-                self.apply_unlocked(&change.id, &change.path, change.format, change.fields)
-            {
+            if let Err(e) = self.apply_unlocked(
+                &change.id,
+                &change.path,
+                change.format,
+                change.fields,
+                restoring,
+            ) {
                 self.recover_unlocked()?;
                 return Err(e);
             }
@@ -296,10 +306,6 @@ impl ConfigStore {
             if let Some(journal) = self.load(&id)? {
                 if journal.path != path {
                     return Err(message("配置目录已改变，无法自动恢复"));
-                }
-                let current = read_value(&path, journal.format)?;
-                if !journal_matches(&current, &journal) {
-                    return Err(message("接入字段已被修改，无法安全恢复；原备份已保留"));
                 }
                 changes.push(Change {
                     id,

@@ -75,7 +75,7 @@ async fn desktop_switch_subscription_and_restore_are_distinct_and_preserve_other
     assert!(targets.iter().all(|(id, _)| store.can_restore(id)));
     // Original backup is not replaced by the intermediate subscription mode.
     let changes = store.restore_changes(targets.clone()).unwrap();
-    let batch = store.begin("claude-desktop", changes).unwrap();
+    let batch = store.begin_restore("claude-desktop", changes).unwrap();
     store.finish_restore(batch).unwrap();
     assert_eq!(
         read_value(&targets[3].1, Format::Json).unwrap()["appliedId"],
@@ -109,6 +109,108 @@ async fn desktop_preflight_failure_changes_no_other_file() {
         "{\"keep\":true}"
     );
     assert!(!targets[1].1.exists());
+}
+
+#[tokio::test]
+async fn explicit_restore_overwrites_changed_routing_and_preserves_projects() {
+    let temp = tempfile::tempdir().unwrap();
+    let context = Context::isolated(temp.path().into());
+    let registry = Registry::default();
+    let adapter = registry.get("codex").unwrap();
+    let path = adapter.path(&context).unwrap();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        "model = 'original'\n[projects.local]\ntrust_level = 'trusted'\n",
+    )
+    .unwrap();
+    let store = ConfigStore::new(temp.path().join("backups"));
+    let batch = store
+        .begin(
+            "codex",
+            adapter
+                .changes(&context, Mode::Tokenone, Some(&credential()))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+    store.commit(batch).unwrap();
+    let edited = fs::read_to_string(&path)
+        .unwrap()
+        .replace("claude-sonnet-4-6", "changed-in-client")
+        .replace("fixture-personal-key", "changed-key");
+    let edited =
+        format!("{edited}\n[desktop.ssh_connections.fixture]\nhostname = 'fixture.example.test'\n");
+    fs::write(&path, &edited).unwrap();
+    let batch = store
+        .begin_restore(
+            "codex",
+            store
+                .restore_changes(adapter.targets(&context).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+    store.finish_restore(batch).unwrap();
+    let restored = read_value(&path, adapter.format()).unwrap();
+    assert_eq!(restored["model"], "original");
+    assert!(restored.get("model_provider").is_none());
+    assert!(restored["model_providers"].get("tokenone").is_none());
+    assert_eq!(restored["projects"]["local"]["trust_level"], "trusted");
+    assert_eq!(
+        restored["desktop"]["ssh_connections"]["fixture"]["hostname"],
+        "fixture.example.test"
+    );
+    assert!(!store.can_restore("codex"));
+}
+
+#[tokio::test]
+async fn explicit_multi_file_restore_can_recover_interruption_and_retry() {
+    let temp = tempfile::tempdir().unwrap();
+    let context = Context::isolated(temp.path().into());
+    let registry = Registry::default();
+    let adapter = registry.get("claude-desktop").unwrap();
+    let targets = adapter.targets(&context).unwrap();
+    fs::create_dir_all(targets[0].1.parent().unwrap()).unwrap();
+    let original = r#"{"deploymentMode":"1p","mcpServers":{"mine":{"command":"fixture"}}}"#;
+    fs::write(&targets[0].1, original).unwrap();
+    let store = ConfigStore::new(temp.path().join("backups"));
+    let batch = store
+        .begin(
+            "claude-desktop",
+            adapter
+                .changes(&context, Mode::Tokenone, Some(&credential()))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+    store.commit(batch).unwrap();
+    let edited = r#"{"deploymentMode":"changed-by-client","mcpServers":{"mine":{"command":"fixture"}},"laterSetting":true}"#;
+    fs::write(&targets[0].1, edited).unwrap();
+    let batch = store
+        .begin_restore(
+            "claude-desktop",
+            store.restore_changes(targets.clone()).unwrap(),
+        )
+        .unwrap();
+    drop(batch); // Interrupted before the operation was committed.
+    store.recover().unwrap();
+    assert_eq!(
+        read_value(&targets[0].1, Format::Json).unwrap()["deploymentMode"],
+        "changed-by-client"
+    );
+    assert!(targets.iter().all(|(id, _)| store.can_restore(id)));
+    let batch = store
+        .begin_restore(
+            "claude-desktop",
+            store.restore_changes(targets.clone()).unwrap(),
+        )
+        .unwrap();
+    store.finish_restore(batch).unwrap();
+    let restored = read_value(&targets[0].1, Format::Json).unwrap();
+    assert_eq!(restored["deploymentMode"], "1p");
+    assert_eq!(restored["laterSetting"], true);
+    assert_eq!(restored["mcpServers"]["mine"]["command"], "fixture");
+    assert!(targets.iter().all(|(id, _)| !store.can_restore(id)));
 }
 #[tokio::test]
 async fn interrupted_multi_file_switch_recovers_and_does_not_clobber_later_edits() {
@@ -326,7 +428,7 @@ async fn codex_switch_keeps_account_local_and_ssh_projects_and_completed_onboard
         }
     }
     let batch = store
-        .begin(
+        .begin_restore(
             "codex",
             store
                 .restore_changes(adapter.targets(&context).unwrap())

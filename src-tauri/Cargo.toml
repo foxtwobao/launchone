@@ -1,6 +1,6 @@
 [package]
 name = "launchone"
-version = "0.2.2"
+version = "0.2.3"
 description = "TokenOne application setup assistant"
 edition = "2021"
 license = "MIT"

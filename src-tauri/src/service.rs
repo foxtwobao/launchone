@@ -302,7 +302,7 @@ impl Runtime {
         let changes = self
             .store
             .restore_changes(adapter.targets(&self.context)?)?;
-        let batch = self.store.begin(app, changes)?;
+        let batch = self.store.begin_restore(app, changes)?;
         if let Err(e) = self.preferences.remember(app, None) {
             self.store.revert(batch)?;
             return Err(e);

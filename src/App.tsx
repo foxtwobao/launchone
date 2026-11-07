@@ -4,6 +4,7 @@ import { AppCard } from "./components/AppCard";
 import { ReopenPrompt } from "./components/ReopenPrompt";
 import { bridge as defaultBridge } from "./lib/bridge";
 import type { Bridge, Progress, Snapshot } from "./lib/types";
+import { version } from "../package.json";
 
 export default function App({ api = defaultBridge }: { api?: Bridge }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -141,7 +142,7 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
       <div className="assurance"><ShieldCheck size={17} /><span>保留原有设置</span><i /><span>随时切回订阅</span><i /><span>配置完成即可关闭</span></div>
     </main>
 
-    <footer><span className="footer-brand"><Sparkles size={13} />Made for your next idea.</span><button className="help-button" onClick={() => setHelpOpen(!helpOpen)} aria-expanded={helpOpen}><CircleHelp size={14} />使用帮助</button></footer>
+    <footer><span className="footer-brand"><Sparkles size={13} />LaunchOne v{version}</span><button className="help-button" onClick={() => setHelpOpen(!helpOpen)} aria-expanded={helpOpen}><CircleHelp size={14} />使用帮助</button></footer>
     {helpOpen && <aside className="help-panel" aria-label="使用帮助"><button className="icon-button" aria-label="关闭帮助" onClick={() => setHelpOpen(false)}><X size={16} /></button><h2>配置好，就可以继续工作。</h2><p>已安装应用直接点击“打开”。首次登录 IDONE 后默认准备 TokenOne，之后保留你选择的使用方式；未安装的应用点击“安装”。</p><p>在卡片上切换“TokenOne / 官方订阅”，切换后确认重新打开，使配置生效。官方登录与订阅资格由原应用确认。“高级”中的“恢复原配置”用于撤销 LaunchOne 的修改，并保留无关设置。</p></aside>}
     {reopenPrompt && <ReopenPrompt alreadyRunning={reopenPrompt.alreadyRunning} names={reopenPrompt.appIds.map(id => snapshot?.apps.find(a => a.manifest.id === id)?.manifest.name ?? id)} onLater={() => setReopenPrompt(null)} onConfirm={() => {
       const ids = reopenPrompt.appIds;

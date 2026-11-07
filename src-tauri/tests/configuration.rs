@@ -78,7 +78,7 @@ fn claude_preserves_jsonc_hooks_and_restores_existing_auth_fields() {
 }
 
 #[test]
-fn conflicting_owned_edits_are_not_overwritten() {
+fn mode_switch_preserves_edits_and_explicit_restore_replaces_managed_fields() {
     let directory = tempfile::tempdir().unwrap();
     let context = Context::isolated(directory.path().into());
     let registry = Registry::default();
@@ -97,9 +97,22 @@ fn conflicting_owned_edits_are_not_overwritten() {
         .unwrap()
         .replace("test-model", "user-changed-model");
     fs::write(&path, &source).unwrap();
-    assert!(store.restore("codex", &path).is_err());
+    assert!(store
+        .apply(
+            "codex",
+            &path,
+            adapter.format(),
+            adapter.fields(Mode::Official, None).unwrap()
+        )
+        .is_err());
     assert_eq!(fs::read_to_string(&path).unwrap(), source);
     assert!(store.can_restore("codex"));
+    store.restore("codex", &path).unwrap();
+    let restored = read_value(&path, adapter.format()).unwrap();
+    assert!(restored.get("model").is_none());
+    assert!(restored.get("model_provider").is_none());
+    assert!(restored["model_providers"].get("tokenone").is_none());
+    assert!(!store.can_restore("codex"));
 }
 
 #[test]
@@ -339,7 +352,14 @@ fn switching_modes_keeps_conflict_checks_for_previously_owned_fields() {
         fs::read_to_string(&path).unwrap()
     );
     fs::write(&path, &modified).unwrap();
-    assert!(store.restore("codex", &path).is_err());
+    assert!(store
+        .apply(
+            "codex",
+            &path,
+            adapter.format(),
+            adapter.fields(Mode::Official, None).unwrap()
+        )
+        .is_err());
     assert_eq!(fs::read_to_string(path).unwrap(), modified);
 }
 
