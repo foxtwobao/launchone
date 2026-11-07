@@ -10,6 +10,7 @@
 - 独立 Reseller `launchone` 服务应用，仅 `keys:ensure`；精确回调 `https://launchone.lab.home.arpa/auth/reseller/callback`；独立凭证仅在服务端。
 - 通过原生管理 API 建立 `launchone` 组合组，成员为 `GPT-企业` 与 `Claude满血`，禁用跨组重试；仅将新组加入可选组，保留原有组配置。
 - 默认模型 `gpt-5.6-sol` 的 Responses 与 `claude-sonnet-4-6` 的 Messages 均通过本人 Key 返回 HTTP 200。再次按两个适配器完全相同的 Bearer、请求体及输出上限验证，也通过成功响应检查。
+- 使用隔离配置运行本机 Codex CLI 0.167.0 和 Claude Code 2.1.286：两者均完成真实文本请求；Codex 命令工具与 Claude Read 工具分别读取测试文件并返回预期内容，工具结果提交后的模型回复成功。未写入宿主用户 CLI 配置。
 - 接入服务通过 systemd 运行于 `127.0.0.1:55410`，Caddy 提供 `https://launchone.lab.home.arpa`，可信 HTTPS 健康检查通过。入口配置见 `deploy/`。
 - lab 测试用户 335 初始额度为 0；通过原生 `POST /api/user/manage` 的 `add_quota` 增加 500000 配额，仅用于本次专用账号验收。没有调整全局计价或其他用户余额。
 

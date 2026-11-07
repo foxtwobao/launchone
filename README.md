@@ -72,6 +72,6 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 已按授权配置独立 lab 应用、模型组和 HTTPS 接入服务，专用普通账号已通过真实授权取 Key 及模型请求，邮箱验证已恢复原设置。新版 Mac 包内置 lab 发布参数，缺少参数会在打包时失败。见 [lab 验收记录](docs/lab-acceptance.md)。
 
-HTTP 网关测试成功只能说明基础接入可用，不能替代真实 CLI 的工具调用、多轮会话验收。
+Linux 上已使用隔离配置验证两个真实 CLI 的文本请求、一次工具调用及结果回传。仍需 Mac / Windows 真机验证完整会话和本机安装配置。
 
 设计范围见 [方案](docs/tokenone-desktop-plan.md)，服务端衔接见 [接入说明](docs/integration.md)。
