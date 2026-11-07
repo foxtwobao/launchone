@@ -22,6 +22,7 @@ desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-opener"]
 tauri-build = { version = "2", optional = true }
 
 [dependencies]
+async-trait = "0.1"
 tauri = { version = "2", optional = true }
 tauri-plugin-opener = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }

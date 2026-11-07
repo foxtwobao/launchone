@@ -36,6 +36,7 @@ fn paths(context: &Context) -> Vec<(String, PathBuf)> {
         ("claude-desktop-library".into(), library.join("_meta.json")),
     ]
 }
+#[async_trait::async_trait]
 impl AppAdapter for ClaudeDesktop {
     fn manifest(&self) -> AppManifest {
         AppManifest {
@@ -77,7 +78,7 @@ impl AppAdapter for ClaudeDesktop {
             Field::new(&["disableDeploymentModeChooser"], Some(json!(true))),
         ])
     }
-    fn changes(
+    async fn changes(
         &self,
         context: &Context,
         mode: Mode,

@@ -14,8 +14,8 @@ fn credential() -> Credential {
     }
 }
 
-#[test]
-fn desktop_switch_subscription_and_restore_are_distinct_and_preserve_other_profiles() {
+#[tokio::test]
+async fn desktop_switch_subscription_and_restore_are_distinct_and_preserve_other_profiles() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Context::isolated(dir.path().into());
     let registry = Registry::default();
@@ -38,7 +38,10 @@ fn desktop_switch_subscription_and_restore_are_distinct_and_preserve_other_profi
     let batch = store
         .begin(
             "claude-desktop",
-            adapter.changes(&ctx, Mode::Tokenone, Some(&c)).unwrap(),
+            adapter
+                .changes(&ctx, Mode::Tokenone, Some(&c))
+                .await
+                .unwrap(),
         )
         .unwrap();
     assert_eq!(
@@ -53,7 +56,7 @@ fn desktop_switch_subscription_and_restore_are_distinct_and_preserve_other_profi
     let batch = store
         .begin(
             "claude-desktop",
-            adapter.changes(&ctx, Mode::Official, None).unwrap(),
+            adapter.changes(&ctx, Mode::Official, None).await.unwrap(),
         )
         .unwrap();
     store.commit(batch).unwrap();
@@ -80,8 +83,8 @@ fn desktop_switch_subscription_and_restore_are_distinct_and_preserve_other_profi
     );
     assert!(targets.iter().all(|(id, _)| !store.can_restore(id)));
 }
-#[test]
-fn desktop_preflight_failure_changes_no_other_file() {
+#[tokio::test]
+async fn desktop_preflight_failure_changes_no_other_file() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Context::isolated(dir.path().into());
     let registry = Registry::default();
@@ -97,6 +100,7 @@ fn desktop_preflight_failure_changes_no_other_file() {
             "claude-desktop",
             adapter
                 .changes(&ctx, Mode::Tokenone, Some(&credential()))
+                .await
                 .unwrap()
         )
         .is_err());
@@ -106,8 +110,8 @@ fn desktop_preflight_failure_changes_no_other_file() {
     );
     assert!(!targets[1].1.exists());
 }
-#[test]
-fn interrupted_multi_file_switch_recovers_and_does_not_clobber_later_edits() {
+#[tokio::test]
+async fn interrupted_multi_file_switch_recovers_and_does_not_clobber_later_edits() {
     for conflict in [false, true] {
         let dir = tempfile::tempdir().unwrap();
         let ctx = Context::isolated(dir.path().into());
@@ -121,6 +125,7 @@ fn interrupted_multi_file_switch_recovers_and_does_not_clobber_later_edits() {
                 "claude-desktop",
                 adapter
                     .changes(&ctx, Mode::Tokenone, Some(&credential()))
+                    .await
                     .unwrap(),
             )
             .unwrap();
@@ -149,8 +154,8 @@ fn interrupted_multi_file_switch_recovers_and_does_not_clobber_later_edits() {
         }
     }
 }
-#[test]
-fn failed_validation_reverts_all_files_and_keeps_original_backup() {
+#[tokio::test]
+async fn failed_validation_reverts_all_files_and_keeps_original_backup() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Context::isolated(dir.path().into());
     let registry = Registry::default();
@@ -159,7 +164,7 @@ fn failed_validation_reverts_all_files_and_keeps_original_backup() {
     let batch = store
         .begin(
             "claude-desktop",
-            adapter.changes(&ctx, Mode::Official, None).unwrap(),
+            adapter.changes(&ctx, Mode::Official, None).await.unwrap(),
         )
         .unwrap();
     store.commit(batch).unwrap();
@@ -168,6 +173,7 @@ fn failed_validation_reverts_all_files_and_keeps_original_backup() {
             "claude-desktop",
             adapter
                 .changes(&ctx, Mode::Tokenone, Some(&credential()))
+                .await
                 .unwrap(),
         )
         .unwrap();
@@ -182,8 +188,8 @@ fn failed_validation_reverts_all_files_and_keeps_original_backup() {
         .iter()
         .all(|(id, _)| store.can_restore(id)));
 }
-#[test]
-fn desktop_mode_requires_both_deployment_files_and_active_own_profile() {
+#[tokio::test]
+async fn desktop_mode_requires_both_deployment_files_and_active_own_profile() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Context::isolated(dir.path().into());
     let registry = Registry::default();
@@ -193,7 +199,10 @@ fn desktop_mode_requires_both_deployment_files_and_active_own_profile() {
     let batch = store
         .begin(
             "claude-desktop",
-            adapter.changes(&ctx, Mode::Tokenone, Some(&c)).unwrap(),
+            adapter
+                .changes(&ctx, Mode::Tokenone, Some(&c))
+                .await
+                .unwrap(),
         )
         .unwrap();
     store.commit(batch).unwrap();
@@ -231,4 +240,162 @@ fn mac_detection_uses_bundle_identity_and_executable_not_cli_or_settings() {
     );
     write("com.openai.chat");
     assert!(!mac_installation(CODEX, &app).unwrap().gateway_supported);
+}
+
+#[tokio::test]
+async fn codex_switch_keeps_account_local_and_ssh_projects_and_completed_onboarding() {
+    let temp = tempfile::tempdir().unwrap();
+    let context = Context::isolated(temp.path().into());
+    let registry = Registry::default();
+    let adapter = registry.get("codex").unwrap();
+    let path = adapter.path(&context).unwrap();
+    let root = path.parent().unwrap();
+    fs::create_dir_all(root).unwrap();
+    let original = "model = 'original'\n[projects.\"/Users/fixture/local-project\"]\ntrust_level = 'trusted'\n[projects.\"/srv/ssh-project\"]\ntrust_level = 'trusted'\n[desktop.ssh_connections.fixture]\nhostname = 'fixture.example.test'\nuser = 'developer'\n";
+    fs::write(&path, original).unwrap();
+    let auth = json!({"auth_mode":"chatgpt", "tokens":{
+        "id_token":"fixture-id-token", "access_token":"fixture-official-access",
+        "refresh_token":"fixture-refresh", "account_id":"fixture-account"
+    }, "last_refresh":"2026-11-07T13:00:00Z"});
+    let state = json!({
+        "electron-local-projects": {
+            "local": {"rootPaths":["/Users/fixture/local-project"]},
+            "remote": {"rootPaths":["/srv/ssh-project"],"hostId":"ssh-fixture"}
+        },
+        "electron-persisted-atom-state": {"fixture-completed-onboarding":true},
+        "electron-account-renderer-state-v1": {"owner":"fixture-account-hash","inactive":{}}
+    });
+    let untouched = [
+        (
+            root.join("auth.json"),
+            serde_json::to_vec_pretty(&auth).unwrap(),
+        ),
+        (
+            root.join(".codex-global-state.json"),
+            serde_json::to_vec_pretty(&state).unwrap(),
+        ),
+        (
+            root.join("state_5.sqlite"),
+            b"fixture-user-database".to_vec(),
+        ),
+        (
+            temp.path().join(".ssh/config"),
+            b"Host fixture\n  HostName fixture.example.test\n".to_vec(),
+        ),
+    ];
+    for (file, bytes) in &untouched {
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, bytes).unwrap();
+    }
+    let store = ConfigStore::new(temp.path().join("backups"));
+    let mut c = credential();
+    c.model = "fixture-model".into();
+    for mode in [Mode::Tokenone, Mode::Official, Mode::Tokenone] {
+        let batch = store
+            .begin(
+                "codex",
+                adapter.changes(&context, mode, Some(&c)).await.unwrap(),
+            )
+            .unwrap();
+        store.commit(batch).unwrap();
+        let config = read_value(&path, adapter.format()).unwrap();
+        if mode == Mode::Tokenone {
+            assert_eq!(
+                config["model_providers"]["tokenone"]["requires_openai_auth"],
+                true
+            );
+            assert_eq!(
+                config["model_providers"]["tokenone"]["experimental_bearer_token"],
+                c.key
+            );
+            assert_eq!(
+                config["model_providers"]["tokenone"]["base_url"],
+                c.base_url
+            );
+        }
+        assert_eq!(
+            config["projects"]["/srv/ssh-project"]["trust_level"],
+            "trusted"
+        );
+        assert_eq!(
+            config["desktop"]["ssh_connections"]["fixture"]["hostname"],
+            "fixture.example.test"
+        );
+        for (file, bytes) in &untouched {
+            assert_eq!(fs::read(file).unwrap(), *bytes);
+        }
+    }
+    let batch = store
+        .begin(
+            "codex",
+            store
+                .restore_changes(adapter.targets(&context).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+    store.finish_restore(batch).unwrap();
+    assert_eq!(
+        read_value(&path, adapter.format()).unwrap()["model"],
+        "original"
+    );
+    for (file, bytes) in &untouched {
+        assert_eq!(fs::read(file).unwrap(), *bytes);
+    }
+}
+
+#[tokio::test]
+async fn codex_does_not_require_official_login_for_a_new_tokenone_user() {
+    for auth in [
+        None,
+        Some(json!({"last_refresh":"metadata-only"})),
+        Some(json!({"auth_mode":"chatgpt", "tokens":{"access_token":"incomplete-fixture"}})),
+        Some(json!({"auth_mode":"bedrockApiKey", "OPENAI_API_KEY":"stale-fixture-key"})),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let context = Context::isolated(temp.path().into());
+        let registry = Registry::default();
+        let adapter = registry.get("codex").unwrap();
+        let path = adapter.path(&context).unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        if let Some(auth) = auth {
+            fs::write(path.parent().unwrap().join("auth.json"), auth.to_string()).unwrap();
+        }
+        let store = ConfigStore::new(temp.path().join("backups"));
+        let batch = store
+            .begin(
+                "codex",
+                adapter
+                    .changes(&context, Mode::Tokenone, Some(&credential()))
+                    .await
+                    .unwrap(),
+            )
+            .unwrap();
+        store.commit(batch).unwrap();
+        assert_eq!(
+            read_value(&path, adapter.format()).unwrap()["model_providers"]["tokenone"]
+                ["requires_openai_auth"],
+            false
+        );
+    }
+}
+
+#[tokio::test]
+async fn malformed_official_auth_stops_switch_without_touching_any_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let context = Context::isolated(temp.path().into());
+    let registry = Registry::default();
+    let adapter = registry.get("codex").unwrap();
+    let path = adapter.path(&context).unwrap();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "model = 'original'\n").unwrap();
+    fs::write(
+        path.parent().unwrap().join("auth.json"),
+        "invalid-auth-json",
+    )
+    .unwrap();
+    assert!(adapter
+        .changes(&context, Mode::Tokenone, Some(&credential()))
+        .await
+        .is_err());
+    assert_eq!(fs::read_to_string(path).unwrap(), "model = 'original'\n");
 }

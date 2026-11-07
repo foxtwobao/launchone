@@ -72,6 +72,7 @@ pub fn mac_installation(spec: DesktopSpec, app: &Path) -> Option<Installation> {
 
 fn has_codex_engine(resources: &Path) -> bool {
     [
+        "codex-cli/CodexCLI.app/Contents/MacOS/codex",
         "codex",
         "codex/codex",
         "bin/codex",
@@ -79,6 +80,137 @@ fn has_codex_engine(resources: &Path) -> bool {
     ]
     .iter()
     .any(|p| resources.join(p).is_file())
+}
+
+/// Read the existing login through the official engine, including OS-native
+/// credential backends. `login status` does not log in, refresh or log out.
+pub async fn codex_has_account(home: &Path, config_home: &Path) -> Result<bool> {
+    let app = detect(CODEX, home)
+        .await?
+        .ok_or_else(|| message("无法定位官方应用，未修改配置"))?;
+    let engine = codex_engine(&app).await?;
+    read_codex_account_status(Command::new(engine), config_home, Duration::from_secs(15)).await
+}
+
+async fn codex_engine(app: &Installation) -> Result<PathBuf> {
+    if cfg!(target_os = "macos") {
+        let resources = app.target.join("Contents/Resources");
+        for name in [
+            "codex-cli/CodexCLI.app/Contents/MacOS/codex",
+            "codex",
+            "codex/codex",
+            "bin/codex",
+        ] {
+            let path = resources.join(name);
+            if path.is_file() {
+                return Ok(path);
+            }
+        }
+    } else if cfg!(windows) {
+        let root = if app.packaged {
+            let mut command = Command::new("powershell.exe");
+            command.args(["-NoProfile", "-NonInteractive", "-Command",
+                "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=New-Object System.Text.UTF8Encoding $false; $family=$env:LAUNCHONE_APP_TARGET.Split('!')[0]; $p=@(Get-AppxPackage | Where-Object {$_.PackageFamilyName -eq $family}); if($p.Count -ne 1){exit 1}; [Console]::Write($p[0].InstallLocation)"])
+                .env("LAUNCHONE_APP_TARGET", &app.target).kill_on_drop(true);
+            #[cfg(windows)]
+            command.creation_flags(0x08000000);
+            let output = tokio::time::timeout(Duration::from_secs(15), command.output())
+                .await
+                .map_err(|_| message("读取官方应用位置超时，未修改配置"))??;
+            if !output.status.success() {
+                return Err(message("无法定位官方应用，未修改配置"));
+            }
+            PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
+        } else {
+            app.target
+                .parent()
+                .ok_or_else(|| message("无法定位官方应用"))?
+                .into()
+        };
+        if root.is_absolute() {
+            let mut engines = Vec::new();
+            find_codex_engines(&root, 6, &mut engines)?;
+            if engines.len() == 1 {
+                return Ok(engines.remove(0));
+            }
+        }
+    }
+    Err(message(
+        "无法定位官方应用的登录组件，请更新官方应用后重试；未修改配置",
+    ))
+}
+
+fn find_codex_engines(root: &Path, depth: usize, engines: &mut Vec<PathBuf>) -> Result<()> {
+    if depth == 0 {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        // Stay inside the detected installation; do not follow links/junctions.
+        if entry.path().symlink_metadata()?.is_symlink() {
+            continue;
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            if entry.path().symlink_metadata()?.file_attributes() & 0x400 != 0 {
+                continue;
+            }
+        }
+        if kind.is_file()
+            && entry
+                .file_name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("codex.exe")
+        {
+            engines.push(entry.path());
+        } else if kind.is_dir() {
+            find_codex_engines(&entry.path(), depth - 1, engines)?;
+        }
+    }
+    Ok(())
+}
+
+async fn read_codex_account_status(
+    mut command: Command,
+    config_home: &Path,
+    timeout: Duration,
+) -> Result<bool> {
+    command
+        .args(["login", "status"])
+        .env("CODEX_HOME", config_home)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    let output = tokio::time::timeout(timeout, command.output())
+        .await
+        .map_err(|_| message("读取官方登录状态超时，请允许系统凭据访问后重试；未修改配置"))?
+        .map_err(|_| message("无法读取官方登录状态，未修改配置"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let lines: Vec<_> = stdout
+        .lines()
+        .chain(stderr.lines())
+        .map(str::trim)
+        .collect();
+    if output.status.success()
+        && lines.iter().any(|s| {
+            *s == "Logged in using ChatGPT"
+                || s.starts_with("API key configured - ")
+                || s.starts_with("Logged in using an API key")
+        })
+    {
+        return Ok(true);
+    }
+    if output.status.code() == Some(1) && lines == ["Not logged in"] {
+        return Ok(false);
+    }
+    // Never include raw engine output: it can contain credential details.
+    Err(message(
+        "无法确认现有官方登录状态，请检查系统凭据访问后重试；未修改配置",
+    ))
 }
 
 pub async fn detect(spec: DesktopSpec, home: &Path) -> Result<Option<Installation>> {
@@ -544,6 +676,87 @@ async fn install_mounted(spec: DesktopSpec, home: &Path, mount: &Path) -> Result
     }
     std::fs::rename(copied, target)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+
+    #[test]
+    fn bundled_engine_search_stays_inside_installation() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("resources/codex-cli/bin");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("codex.exe"), "fixture").unwrap();
+        std::fs::write(root.join("other.exe"), "fixture").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(temp.path(), root.join("loop")).unwrap();
+        let mut engines = Vec::new();
+        find_codex_engines(temp.path(), 6, &mut engines).unwrap();
+        assert_eq!(engines, [root.join("codex.exe")]);
+    }
+
+    #[tokio::test]
+    async fn native_account_probe_handles_login_absence_errors_and_timeout() {
+        let temp = tempfile::tempdir().unwrap();
+        for (response, code, expected) in [
+            ("Logged in using ChatGPT", 0, Some(true)),
+            ("API key configured - fixture-masked", 0, Some(true)),
+            ("Not logged in", 1, Some(false)),
+            ("Error checking login status: fixture-secret", 1, None),
+            ("Not logged in", 0, None),
+            ("Unknown output fixture-secret", 0, None),
+        ] {
+            let mut command = fixture_command(temp.path(), false);
+            command
+                .env("LAUNCHONE_FIXTURE_RESPONSE", response)
+                .env("LAUNCHONE_FIXTURE_EXIT", code.to_string());
+            let result =
+                read_codex_account_status(command, temp.path(), Duration::from_secs(10)).await;
+            match expected {
+                Some(expected) => assert_eq!(result.unwrap(), expected),
+                None => assert!(!result.unwrap_err().to_string().contains("fixture-secret")),
+            }
+        }
+        let result = read_codex_account_status(
+            fixture_command(temp.path(), true),
+            temp.path(),
+            Duration::from_millis(100),
+        )
+        .await;
+        assert!(result.unwrap_err().to_string().contains("超时"));
+    }
+
+    fn fixture_command(root: &Path, wait: bool) -> Command {
+        let script = root.join(if cfg!(windows) {
+            "fixture.ps1"
+        } else {
+            "fixture.sh"
+        });
+        if cfg!(windows) {
+            std::fs::write(&script, if wait { "Start-Sleep -Seconds 3" } else {
+                "param($first,$second)\nif($first -ne 'login' -or $second -ne 'status' -or -not $env:CODEX_HOME){exit 9}\n[Console]::Error.WriteLine($env:LAUNCHONE_FIXTURE_RESPONSE)\nexit ([int]$env:LAUNCHONE_FIXTURE_EXIT)"
+            }).unwrap();
+            let mut command = Command::new("powershell.exe");
+            command
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                ])
+                .arg(script);
+            command
+        } else {
+            std::fs::write(&script, if wait { "exec sleep 3" } else {
+                "[ \"$1\" = login ] && [ \"$2\" = status ] && [ -n \"$CODEX_HOME\" ] || exit 9\nprintf '%s\\n' \"$LAUNCHONE_FIXTURE_RESPONSE\" >&2\nexit \"$LAUNCHONE_FIXTURE_EXIT\""
+            }).unwrap();
+            let mut command = Command::new("/bin/sh");
+            command.arg(script);
+            command
+        }
+    }
 }
 
 #[cfg(all(test, windows))]

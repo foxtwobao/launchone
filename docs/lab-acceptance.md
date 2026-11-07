@@ -37,3 +37,15 @@ Windows、macOS 的实际目标应用界面、模型请求及重启生效仍待�
 ## 0.2.1 确认重开与高级菜单
 
 切换或恢复后提示确认重新打开；稍后选择和待重开状态会保留，失败不强制结束目标进程。“高级”入口直接显示恢复原配置及无备份说明。本地 18 项界面、37 项 Rust 测试和桌面编译检查通过；新增 Mac AppleScript 编译及 Windows 正常退出隔离测试由目标平台构建机执行，不操作真实目标应用。
+
+## 0.2.2 运行检测与账号状态保留
+
+点击打开时实时检查目标应用是否运行，确认后才正常退出并重开；Mac 测试机使用临时 AppKit 应用验证，Windows 使用隔离 PowerShell fixture 验证精确目标匹配。
+
+此前 Codex provider 固定 `requires_openai_auth=false`，会将桌面端报告的账号置空。现在有原账号时保留身份，同时明确设置 TokenOne 的 `experimental_bearer_token`；新用户保持免官方登录。file 存储只读 `auth.json`，keyring/auto 通过官方应用附带引擎的只读 `login status` 查询，由官方处理原生凭据格式；拒绝访问、超时或无法识别时停止，不覆盖配置。未改写账号、项目数据库、SSH 配置或问卷状态。
+
+检查了官方 macOS 26.1103.41825 安装包中的部分状态管理代码，发现按账号隔离的 renderer state；这是问卷和项目列表问题的机制线索，尚非实际桌面问卷根因的完整验证。对应 Codex rust-v0.167.0 源码中 `model-provider/src/provider.rs::account_state`、`model-provider/src/auth.rs::resolve_provider_auth` 分别确认账号报告和明确 provider token 的优先级。研究仅静态读取，未执行下载的官方应用。
+
+本地 20 项界面、42 项 Rust 测试与桌面编译检查通过。配置往返测试验证本地与 SSH 项目配置、auth、全局桌面状态及数据库 fixture 字节未变；fixture 仅证明不改文件，不代表真实问卷界面已验收。另用隔离 Codex 0.167.0 对本地 HTTP SSE fixture 发出真实请求并完成回复，确认 Authorization 使用 provider fixture Key，原官方 fixture Key 文件未改；无真实用户凭据或外部模型请求。
+
+仍需用户 Mac 验收：安装新包后重新选择 TokenOne、确认重开，检查原项目（含 SSH）、已完成问卷及模型调用。此前旧版产生的另一身份下新增项目不做自动数据库合并。

@@ -41,6 +41,7 @@ impl Context {
     }
 }
 
+#[async_trait::async_trait]
 pub trait AppAdapter: Send + Sync {
     fn manifest(&self) -> AppManifest;
     fn desktop(&self) -> Option<DesktopSpec> {
@@ -49,7 +50,7 @@ pub trait AppAdapter: Send + Sync {
     fn targets(&self, context: &Context) -> Result<Vec<(String, PathBuf)>> {
         Ok(vec![(self.manifest().id.into(), self.path(context)?)])
     }
-    fn changes(
+    async fn changes(
         &self,
         context: &Context,
         mode: Mode,

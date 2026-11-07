@@ -3,6 +3,7 @@ use serde_json::json;
 
 pub struct Claude;
 
+#[async_trait::async_trait]
 impl AppAdapter for Claude {
     fn manifest(&self) -> AppManifest {
         AppManifest {

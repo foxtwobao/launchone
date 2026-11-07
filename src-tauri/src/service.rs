@@ -239,7 +239,9 @@ impl Runtime {
         self.store.recover()?;
         let batch = self.store.begin(
             app,
-            adapter.changes(&self.context, Mode::Tokenone, Some(&c))?,
+            adapter
+                .changes(&self.context, Mode::Tokenone, Some(&c))
+                .await?,
         )?;
         progress("verifying", "正在验证连接");
         if let Err(e) = self
@@ -272,9 +274,10 @@ impl Runtime {
             message: "正在切回官方订阅".into(),
         });
         self.store.recover()?;
-        let batch = self
-            .store
-            .begin(app, adapter.changes(&self.context, Mode::Official, None)?)?;
+        let batch = self.store.begin(
+            app,
+            adapter.changes(&self.context, Mode::Official, None).await?,
+        )?;
         let verified = (|| {
             if adapter.current_mode(&self.context, None)? != Some(Mode::Official) {
                 return Err(message("官方接入配置未生效"));
