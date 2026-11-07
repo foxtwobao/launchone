@@ -1,0 +1,8 @@
+# LaunchOne-owned ingress snippet. Review and import into the lab proxy when deploying.
+# Does not replace the Reseller, IDONE or TokenOne configuration.
+launchone.lab.home.arpa {
+    bind 192.168.10.38
+    tls internal
+    reverse_proxy 127.0.0.1:55400
+    # Authentication URLs contain one-time codes. Do not enable access/query logs.
+}
