@@ -414,7 +414,7 @@ mod windows_tests {
             })).collect();
             let script = format!(
                 r#"
-function Get-AppxPackage {{ $env:LAUNCHONE_PACKAGE_FIXTURE | ConvertFrom-Json }}
+function Get-AppxPackage {{ foreach($item in ($env:LAUNCHONE_PACKAGE_FIXTURE | ConvertFrom-Json)) {{ $item }} }}
 function Get-AppxPackageManifest {{
  param([Parameter(ValueFromPipeline=$true)] $Package)
  process {{ [pscustomobject]@{{ Package=@{{ Applications=@{{ Application=@{{ Executable=$env:LAUNCHONE_EXE_FIXTURE; Id='App' }} }} }} }} }}
@@ -440,7 +440,8 @@ function Test-Path {{ throw 'Fixture unexpectedly reached filesystem fallback' }
                 "{}",
                 String::from_utf8_lossy(&output.stderr)
             );
-            let app: WindowsApp = serde_json::from_slice(&output.stdout).unwrap();
+            let app: WindowsApp = serde_json::from_slice(&output.stdout)
+                .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&output.stdout)));
             assert_eq!(app.target, format!("{expected}!App"));
             assert_eq!(app.version.as_deref(), Some("1.2.3"));
             assert!(app.packaged);
