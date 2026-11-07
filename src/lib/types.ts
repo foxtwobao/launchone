@@ -1,4 +1,5 @@
 export type Mode = "tokenone" | "official";
+export type OpenOutcome = "opened" | "already_running" | "restart_required";
 
 export interface AppManifest {
   id: string;
@@ -41,7 +42,7 @@ export interface Bridge {
   enable(appId: string): Promise<void>;
   official(appId: string): Promise<void>;
   restore(appId: string): Promise<void>;
-  open(appId: string): Promise<void>;
+  open(appId: string): Promise<OpenOutcome>;
   reopen(appId: string): Promise<void>;
   install(appId: string): Promise<boolean>;
   defaults(): Promise<{ appId: string; message: string }[]>;

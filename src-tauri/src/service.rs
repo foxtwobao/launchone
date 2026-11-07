@@ -3,7 +3,7 @@ use crate::auth::Auth;
 use crate::config::ConfigStore;
 use crate::desktop_app;
 use crate::error::{message, Result};
-use crate::models::{AppStatus, Credential, DefaultFailure, Mode, Progress, Snapshot};
+use crate::models::{AppStatus, Credential, DefaultFailure, Mode, OpenOutcome, Progress, Snapshot};
 use crate::preferences::Preferences;
 use crate::settings::{http_client, Settings};
 use serde_json::Value;
@@ -121,21 +121,19 @@ impl Runtime {
         Ok(failures)
     }
 
-    pub async fn open(&self, app: &str) -> Result<()> {
+    pub async fn open(&self, app: &str) -> Result<OpenOutcome> {
         let _operation = self
             .operation
             .try_lock()
             .map_err(|_| message("另一项操作正在进行，请稍后再试"))?;
         let adapter = self.registry.get(app)?;
         ensure_supported(adapter)?;
-        if self.preferences.needs_restart(app)? {
-            return Err(message("配置已更新，请确认重新打开应用以使配置生效"));
-        }
-        desktop_app::launch(
+        desktop_app::open(
             adapter
                 .desktop()
                 .ok_or_else(|| message("此工具没有桌面入口"))?,
             &self.context.home,
+            self.preferences.needs_restart(app)?,
         )
         .await
     }

@@ -16,7 +16,7 @@ function setup(overrides:Partial<Snapshot>={}, changes:Partial<Bridge>={}) {
     cancelLogin:vi.fn(async()=>{}),logout:vi.fn(async()=>{snapshot.account=null;}),
     enable:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.mode="tokenone";}),
     official:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.mode="official";}),
-    restore:vi.fn(async()=>{}),open:vi.fn(async()=>{}),reopen:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.restartRequired=false;}),install:vi.fn(async()=>true),defaults:vi.fn(async()=>[]),
+    restore:vi.fn(async()=>{}),open:vi.fn(async(id)=>snapshot.apps.find(a=>a.manifest.id===id)!.restartRequired ? "restart_required" as const : "opened" as const),reopen:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.restartRequired=false;}),install:vi.fn(async()=>true),defaults:vi.fn(async()=>[]),
     subscribe:vi.fn(async()=>()=>{}),...changes,
   };
   const view=render(<App api={api}/>);
@@ -30,6 +30,33 @@ test("已安装应用未登录也能打开，不修改配置、不启动授权",
   expect(api.open).toHaveBeenCalledWith("future-tool");
   expect(api.login).not.toHaveBeenCalled();expect(api.enable).not.toHaveBeenCalled();
   expect(screen.getByRole("button",{name:"Future Tool：TokenOne"})).toBeDisabled();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("应用已运行且没有配置变更也先提示，稍后不退出，确认才重开",async()=>{
+  const {api}=setup({account:null}, {open:vi.fn(async()=>"already_running" as const)});
+  const open=await screen.findByRole("button",{name:"Future Tool：打开"});
+  await userEvent.click(open);
+  const dialog=await screen.findByRole("dialog",{name:"应用已在运行"});
+  expect(dialog).toHaveTextContent("Future Tool 已在运行");
+  expect(dialog).not.toHaveTextContent("配置已更新");
+  expect(api.reopen).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button",{name:"稍后"}));await idle();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();expect(api.reopen).not.toHaveBeenCalled();
+  await userEvent.click(open);
+  await userEvent.click(await screen.findByRole("button",{name:"重新打开"}));
+  await waitFor(()=>expect(api.reopen).toHaveBeenCalledOnce());await idle();
+  expect(api.open).toHaveBeenCalledTimes(2);expect(api.enable).not.toHaveBeenCalled();
+});
+
+test("运行状态检测失败时显示错误，不打开或重开，允许重试",async()=>{
+  const {api}=setup({account:null}, {open:vi.fn(async()=>{throw "无法确认应用是否正在运行";})});
+  await userEvent.click(await screen.findByRole("button",{name:"Future Tool：打开"}));
+  expect(await screen.findByRole("alert")).toHaveTextContent("无法确认应用是否正在运行");await idle();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();expect(api.reopen).not.toHaveBeenCalled();
+  vi.mocked(api.open).mockResolvedValueOnce("opened");
+  await userEvent.click(screen.getByRole("button",{name:"Future Tool：打开"}));await idle();
+  expect(api.open).toHaveBeenCalledTimes(2);expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 test("卡片直接切换两种模式，选中项由成功后的真实配置决定",async()=>{
   const {api}=setup();await idle();
@@ -132,7 +159,7 @@ test("重开失败保留待重开状态和已选模式，允许稍后再试",asy
   await userEvent.click(await screen.findByRole("button",{name:"重新打开"}));
   expect(await screen.findByRole("alert")).toHaveTextContent("请保存工作");await idle();
   expect(snapshot.apps[0].restartRequired).toBe(true);expect(snapshot.apps[0].mode).toBe("official");
-  expect(api.open).not.toHaveBeenCalled();
+  expect(api.open).toHaveBeenCalledWith("future-tool");
 });
 test("首次准备多个应用只显示一次确认，未确认不重开任何应用",async()=>{
   const {api,snapshot}=setup({apps:[tool(),tool("second-tool","Second Tool")]});

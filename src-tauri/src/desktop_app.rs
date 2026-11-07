@@ -1,5 +1,6 @@
 //! Native app discovery and launching. No CLI or config-directory heuristics.
 use crate::error::{message, Result};
+use crate::models::OpenOutcome;
 use serde::Deserialize;
 use std::{
     path::{Path, PathBuf},
@@ -195,10 +196,34 @@ foreach($path in $paths) {{
     )
 }
 
-pub async fn launch(spec: DesktopSpec, home: &Path) -> Result<()> {
+pub async fn open(spec: DesktopSpec, home: &Path, restart_required: bool) -> Result<OpenOutcome> {
     let app = detect(spec, home)
         .await?
         .ok_or_else(|| message("尚未检测到桌面应用，请先安装或重新检测"))?;
+    open_installation(app, restart_required).await
+}
+
+async fn open_installation(app: Installation, restart_required: bool) -> Result<OpenOutcome> {
+    // Query at the time of the click, including when no configuration changed.
+    // The renderer must confirm before the separate reopen command can quit it.
+    if is_running(&app).await? {
+        return Ok(OpenOutcome::AlreadyRunning);
+    }
+    if restart_required {
+        return Ok(OpenOutcome::RestartRequired);
+    }
+    launch_installation(app).await?;
+    Ok(OpenOutcome::Opened)
+}
+
+async fn launch(spec: DesktopSpec, home: &Path) -> Result<()> {
+    let app = detect(spec, home)
+        .await?
+        .ok_or_else(|| message("尚未检测到桌面应用，请先安装或重新检测"))?;
+    launch_installation(app).await
+}
+
+async fn launch_installation(app: Installation) -> Result<()> {
     let mut command = if cfg!(target_os = "macos") {
         let mut c = Command::new("/usr/bin/open");
         c.arg("-a").arg(app.target);
@@ -229,6 +254,45 @@ pub async fn launch(spec: DesktopSpec, home: &Path) -> Result<()> {
     Ok(())
 }
 
+const MAC_RUNNING_SCRIPT: &str = r#"
+on run argv
+    set targetPath to item 1 of argv
+    return application targetPath is running
+end run
+"#;
+
+async fn is_running(app: &Installation) -> Result<bool> {
+    let mut command = if cfg!(target_os = "macos") {
+        let mut c = Command::new("/usr/bin/osascript");
+        c.args(["-e", MAC_RUNNING_SCRIPT]).arg(&app.target);
+        c
+    } else if cfg!(windows) {
+        let mut c = Command::new("powershell.exe");
+        c.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &windows_running_script(app),
+        ]);
+        #[cfg(windows)]
+        c.creation_flags(0x08000000);
+        c
+    } else {
+        return Err(message("当前平台暂不支持桌面应用"));
+    };
+    let output = tokio::time::timeout(Duration::from_secs(10), command.kill_on_drop(true).output())
+        .await
+        .map_err(|_| message("检测运行状态超时，请重试"))??;
+    if output.status.success() {
+        match String::from_utf8_lossy(&output.stdout).trim() {
+            "true" => return Ok(true),
+            "false" => return Ok(false),
+            _ => {}
+        }
+    }
+    Err(message("无法确认应用是否正在运行，请重新检测后重试"))
+}
+
 const MAC_REOPEN_SCRIPT: &str = r#"
 on run argv
     set targetPath to item 1 of argv
@@ -243,7 +307,7 @@ on run argv
 end run
 "#;
 
-fn windows_quit_script(app: &Installation) -> String {
+fn windows_process_script(app: &Installation) -> String {
     // The target was obtained from verified native installation metadata. Quote
     // it as a PowerShell literal, never as shell command text or a process name.
     let target = app.target.to_string_lossy().replace('\'', "''");
@@ -268,6 +332,15 @@ function Find-TargetProcesses {{
   try {{ $path=$_.Path; $path -and $(if({packaged}){{ $path.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) }}else{{ $path -eq $root }}) }} catch {{ $false }}
  }}
 }}
+"#,
+        packaged = if app.packaged { "$true" } else { "$false" }
+    )
+}
+
+fn windows_quit_script(app: &Installation) -> String {
+    format!(
+        r#"
+{}
 $processes=@(Find-TargetProcesses)
 foreach($process in $processes) {{
  if($process.MainWindowHandle -ne 0) {{ [void]$process.CloseMainWindow() }}
@@ -278,7 +351,14 @@ while(@(Find-TargetProcesses).Count -gt 0) {{
  Start-Sleep -Milliseconds 250
 }}
 "#,
-        packaged = if app.packaged { "$true" } else { "$false" }
+        windows_process_script(app)
+    )
+}
+
+fn windows_running_script(app: &Installation) -> String {
+    format!(
+        "{}\nif(@(Find-TargetProcesses).Count -gt 0) {{ 'true' }} else {{ 'false' }}",
+        windows_process_script(app)
     )
 }
 
@@ -472,6 +552,54 @@ mod windows_tests {
     use serde_json::json;
 
     #[tokio::test]
+    async fn running_probe_checks_verified_target_and_never_closes_it() {
+        for packaged in [false, true] {
+            for running in [false, true] {
+                let app = Installation {
+                    target: if packaged {
+                        "Fixture!App".into()
+                    } else {
+                        r"D:\Apps\it's fixture\Claude.exe".into()
+                    },
+                    version: None,
+                    packaged,
+                    gateway_supported: true,
+                };
+                let script = format!(
+                    r#"
+function Get-AppxPackage {{ [pscustomobject]@{{PackageFamilyName='Fixture';InstallLocation="D:\Apps\it's fixture"}} }}
+function Get-Process {{
+ $paths=@('D:\Other\Claude.exe','D:\Apps\it''s fixture-other\Claude.exe')
+ if($env:LAUNCHONE_RUNNING_FIXTURE -eq 'true') {{ $paths+="D:\Apps\it's fixture\Claude.exe" }}
+ foreach($path in $paths) {{
+  $process=[pscustomobject]@{{Path=$path;MainWindowHandle=42}}
+  $process | Add-Member -MemberType ScriptMethod -Name CloseMainWindow -Value {{throw 'Probe attempted to close an app'}}
+  $process
+ }}
+}}
+{}"#,
+                    windows_running_script(&app)
+                );
+                let output = Command::new("powershell.exe")
+                    .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+                    .env("LAUNCHONE_RUNNING_FIXTURE", running.to_string())
+                    .output()
+                    .await
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                assert_eq!(
+                    String::from_utf8_lossy(&output.stdout).trim(),
+                    running.to_string()
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn quit_script_closes_only_the_verified_app_with_no_forced_termination() {
         for packaged in [false, true] {
             let path = r"D:\Apps\it's fixture\Claude.exe";
@@ -586,6 +714,73 @@ function Test-Path {{ throw 'Fixture unexpectedly reached filesystem fallback' }
 #[cfg(all(test, target_os = "macos"))]
 mod mac_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn running_fixture_requires_confirmation_even_without_config_changes() {
+        // A temporary native app is the only process this test starts or stops.
+        // No official app, user configuration or keychain is accessed.
+        let temp = tempfile::tempdir().unwrap();
+        let bundle = temp.path().join("Running fixture.app");
+        let contents = bundle.join("Contents");
+        std::fs::create_dir_all(contents.join("MacOS")).unwrap();
+        let mut info = plist::Dictionary::new();
+        info.insert(
+            "CFBundleIdentifier".into(),
+            format!("test.launchone.fixture.{}", std::process::id()).into(),
+        );
+        info.insert("CFBundleExecutable".into(), "fixture".into());
+        info.insert("CFBundlePackageType".into(), "APPL".into());
+        plist::Value::Dictionary(info)
+            .to_file_xml(contents.join("Info.plist"))
+            .unwrap();
+        let source = temp.path().join("fixture.swift");
+        std::fs::write(&source, "import AppKit\nlet app = NSApplication.shared\napp.setActivationPolicy(.prohibited)\napp.run()\n").unwrap();
+        let binary = contents.join("MacOS/fixture");
+        let compiled = Command::new("/usr/bin/swiftc")
+            .arg(source)
+            .arg("-o")
+            .arg(&binary)
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            compiled.status.success(),
+            "{}",
+            String::from_utf8_lossy(&compiled.stderr)
+        );
+        let installation = || Installation {
+            target: bundle.clone(),
+            version: None,
+            packaged: false,
+            gateway_supported: true,
+        };
+        assert!(!is_running(&installation()).await.unwrap());
+        assert_eq!(
+            open_installation(installation(), true).await.unwrap(),
+            OpenOutcome::RestartRequired
+        );
+        assert!(!is_running(&installation()).await.unwrap());
+        let mut child = Command::new(binary).kill_on_drop(true).spawn().unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !is_running(&installation()).await.unwrap() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "Fixture did not register as running"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        for pending in [false, true] {
+            assert_eq!(
+                open_installation(installation(), pending).await.unwrap(),
+                OpenOutcome::AlreadyRunning
+            );
+            assert!(is_running(&installation()).await.unwrap());
+        }
+        child.kill().await.unwrap();
+        child.wait().await.unwrap();
+        assert!(!is_running(&installation()).await.unwrap());
+    }
+
     #[tokio::test]
     async fn quit_script_compiles_without_accessing_any_target_app() {
         let temp = tempfile::tempdir().unwrap();

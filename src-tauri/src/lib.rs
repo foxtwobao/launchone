@@ -107,7 +107,10 @@ mod desktop {
     }
 
     #[tauri::command]
-    async fn open_app(runtime: State<'_, Arc<Runtime>>, app_id: String) -> Result<()> {
+    async fn open_app(
+        runtime: State<'_, Arc<Runtime>>,
+        app_id: String,
+    ) -> Result<crate::models::OpenOutcome> {
         runtime.open(&app_id).await
     }
 

@@ -16,9 +16,9 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
   const [notices, setNotices] = useState<Record<string, string | undefined>>({});
   const [accountError, setAccountError] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
-  const [reopenApps, setReopenApps] = useState<string[]>([]);
+  const [reopenPrompt, setReopenPrompt] = useState<{ appIds: string[]; alreadyRunning: boolean } | null>(null);
   const mounted = useRef(false);
-  const busy = loginBusy || Boolean(busyApp) || accountBusy || reopenApps.length > 0;
+  const busy = loginBusy || Boolean(busyApp) || accountBusy || Boolean(reopenPrompt);
 
   async function refresh() {
     const next = await api.snapshot();
@@ -57,7 +57,8 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
       const failures = await api.defaults();
       if (mounted.current) setErrors(prev => ({ ...prev, ...Object.fromEntries(failures.map(f => [f.appId, f.message])) }));
       const next = await refresh();
-      if (mounted.current) setReopenApps(next.apps.filter(a => a.installed && a.restartRequired).map(a => a.manifest.id));
+      const appIds = next.apps.filter(a => a.installed && a.restartRequired).map(a => a.manifest.id);
+      if (mounted.current && appIds.length) setReopenPrompt({ appIds, alreadyRunning: false });
     } finally { if (mounted.current) { setBusyApp(undefined); setProgress(undefined); } }
   }
 
@@ -76,10 +77,6 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
   }
 
   async function operate(appId: string, kind: "enable" | "official" | "restore" | "open" | "install" | "reopen") {
-    if (kind === "open" && snapshot?.apps.find(a => a.manifest.id === appId)?.restartRequired) {
-      setReopenApps([appId]);
-      return;
-    }
     let changed = false;
     setBusyApp(appId);
     setErrors(prev => ({ ...prev, [appId]: undefined }));
@@ -93,15 +90,18 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
           if (next.account) await prepareDefaults();
         }
         setNotices(prev => ({ ...prev, [appId]: installed ? "安装完成，可打开应用。" : "已打开官方下载页，完成安装后返回此处重新检测。" }));
+      } else if (kind === "open") {
+        const outcome = await api.open(appId);
+        if (outcome !== "opened") setReopenPrompt({ appIds: [appId], alreadyRunning: outcome === "already_running" });
       } else {
         await api[kind](appId);
-        changed = kind !== "open" && kind !== "reopen";
-        if (kind !== "open") setNotices(prev => ({ ...prev, [appId]: kind === "reopen" ? "已重新打开应用。" : kind === "restore" ? "已恢复原配置，重新打开后生效。" : kind === "official" ? "已切回官方订阅，重新打开后生效；登录和订阅状态由官方客户端确认。" : "已切换到 TokenOne，重新打开后生效。" }));
+        changed = kind !== "reopen";
+        setNotices(prev => ({ ...prev, [appId]: kind === "reopen" ? "已重新打开应用。" : kind === "restore" ? "已恢复原配置，重新打开后生效。" : kind === "official" ? "已切回官方订阅，重新打开后生效；登录和订阅状态由官方客户端确认。" : "已切换到 TokenOne，重新打开后生效。" }));
       }
     } catch (error) { if (String(error) !== "已取消操作") setErrors(prev => ({ ...prev, [appId]: String(error) })); }
     finally {
       await refresh().then(next => {
-        if (changed && next.apps.find(a => a.manifest.id === appId)?.restartRequired) setReopenApps([appId]);
+        if (changed && next.apps.find(a => a.manifest.id === appId)?.restartRequired) setReopenPrompt({ appIds: [appId], alreadyRunning: false });
       }).catch(() => setLoadingError("操作已结束，暂时无法刷新状态，请重试。"));
       setBusyApp(undefined); setProgress(undefined);
     }
@@ -143,9 +143,9 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
 
     <footer><span className="footer-brand"><Sparkles size={13} />Made for your next idea.</span><button className="help-button" onClick={() => setHelpOpen(!helpOpen)} aria-expanded={helpOpen}><CircleHelp size={14} />使用帮助</button></footer>
     {helpOpen && <aside className="help-panel" aria-label="使用帮助"><button className="icon-button" aria-label="关闭帮助" onClick={() => setHelpOpen(false)}><X size={16} /></button><h2>配置好，就可以继续工作。</h2><p>已安装应用直接点击“打开”。首次登录 IDONE 后默认准备 TokenOne，之后保留你选择的使用方式；未安装的应用点击“安装”。</p><p>在卡片上切换“TokenOne / 官方订阅”，切换后确认重新打开，使配置生效。官方登录与订阅资格由原应用确认。“高级”中的“恢复原配置”用于撤销 LaunchOne 的修改，并保留无关设置。</p></aside>}
-    {reopenApps.length > 0 && <ReopenPrompt names={reopenApps.map(id => snapshot?.apps.find(a => a.manifest.id === id)?.manifest.name ?? id)} onLater={() => setReopenApps([])} onConfirm={() => {
-      const ids = reopenApps;
-      setReopenApps([]);
+    {reopenPrompt && <ReopenPrompt alreadyRunning={reopenPrompt.alreadyRunning} names={reopenPrompt.appIds.map(id => snapshot?.apps.find(a => a.manifest.id === id)?.manifest.name ?? id)} onLater={() => setReopenPrompt(null)} onConfirm={() => {
+      const ids = reopenPrompt.appIds;
+      setReopenPrompt(null);
       void (async () => { for (const id of ids) await operate(id, "reopen"); })();
     }} />}
   </div>;

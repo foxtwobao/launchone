@@ -7,6 +7,14 @@ pub enum Mode {
     Official,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenOutcome {
+    Opened,
+    AlreadyRunning,
+    RestartRequired,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppManifest {
