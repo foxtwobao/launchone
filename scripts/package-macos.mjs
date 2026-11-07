@@ -30,7 +30,7 @@ run('npm', ['run', 'desktop:build', '--', '--target', 'universal-apple-darwin',
 
 const bundle = join(target, 'universal-apple-darwin', 'release', 'bundle');
 const app = join(bundle, 'macos', 'LaunchOne.app');
-run('lipo', ['-verify_arch', 'arm64', 'x86_64', join(app, 'Contents', 'MacOS', 'launchone')]);
+run('lipo', [join(app, 'Contents', 'MacOS', 'launchone'), '-verify_arch', 'arm64', 'x86_64']);
 run('codesign', ['--verify', '--deep', '--strict', app]);
 
 const dmgs = readdirSync(join(bundle, 'dmg')).filter(name => name.endsWith('.dmg') && name.includes(version));
