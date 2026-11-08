@@ -68,15 +68,19 @@ impl AppAdapter for Codex {
                     })),
                 )
             }
+            // Keep the TokenOne provider registered while official mode is
+            // active. Codex sessions remember the provider they were created
+            // with and need that route when reopened from desktop history.
             Mode::Official => (Some(json!("openai")), None, None),
         };
         let mut fields = vec![
             Field::new(&["profile"], None),
             Field::new(&["model_provider"], provider),
             Field::new(&["model"], model),
-            Field::new(&["model_providers", "tokenone"], table),
         ];
-        if mode == Mode::Official {
+        if mode == Mode::Tokenone {
+            fields.push(Field::new(&["model_providers", "tokenone"], table));
+        } else {
             fields.push(Field::new(&["model_providers", "openai"], None));
         }
         Ok(fields)

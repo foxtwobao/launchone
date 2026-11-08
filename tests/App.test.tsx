@@ -17,7 +17,7 @@ function setup(overrides:Partial<Snapshot>={}, changes:Partial<Bridge>={}) {
     enable:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.mode="tokenone";}),
     official:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.mode="official";}),
     restore:vi.fn(async()=>{}),open:vi.fn(async(id)=>snapshot.apps.find(a=>a.manifest.id===id)!.restartRequired ? "restart_required" as const : "opened" as const),reopen:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.restartRequired=false;}),install:vi.fn(async()=>true),defaults:vi.fn(async()=>[]),
-    subscribe:vi.fn(async()=>()=>{}),...changes,
+    checkUpdate:vi.fn(async()=>null),installUpdate:vi.fn(async()=>{}),subscribe:vi.fn(async()=>()=>{}),...changes,
   };
   const view=render(<App api={api}/>);
   return {api,snapshot,...view};
@@ -108,6 +108,29 @@ test("浏览器预览不伪造安装和登录",async()=>{
   setup({account:null,desktop:false,loginReady:false});
   expect(await screen.findByRole("button",{name:"Future Tool：打开"})).toBeDisabled();
   expect(screen.getByRole("button",{name:"登录 IDONE"})).toBeDisabled();
+});
+test("Codex 会话提示保留历史与会话原 Provider",async()=>{
+  const {api}=setup({apps:[tool("codex","ChatGPT / Codex")]});
+  await screen.findByRole("button",{name:"ChatGPT / Codex：打开"});
+  expect(screen.getByText(/切换不会删除会话；续接沿用会话原 Provider/)).toBeVisible();
+  await userEvent.click(screen.getByRole("button",{name:"ChatGPT / Codex：TokenOne"}));
+  expect(await screen.findByText(/已切换到 TokenOne/)).toBeVisible();
+  expect(screen.getByText(/切换不会删除会话；续接沿用会话原 Provider/)).toBeVisible();
+  expect(api.official).not.toHaveBeenCalled();
+});
+test("发现更新后可安装，启动时检查由桌面桥接执行",async()=>{
+  const {api}=setup({}, {checkUpdate:vi.fn(async()=>({version:"0.2.4",notes:"修复问题",date:null}))});
+  const update=await screen.findByRole("button",{name:"更新到 v0.2.4"});
+  expect(api.checkUpdate).toHaveBeenCalledOnce();
+  await userEvent.click(update);
+  await waitFor(()=>expect(api.installUpdate).toHaveBeenCalledOnce());
+});
+test("更新检查失败后应用重新获得焦点时会重试",async()=>{
+  const checkUpdate=vi.fn().mockRejectedValueOnce("network error").mockResolvedValue(null);
+  const {api}=setup({}, {checkUpdate});
+  await waitFor(()=>expect(api.checkUpdate).toHaveBeenCalledOnce());
+  await act(async()=>window.dispatchEvent(new Event("focus")));
+  await waitFor(()=>expect(api.checkUpdate).toHaveBeenCalledTimes(2));
 });
 test("不支持官方方式的新增应用不展示订阅选项",async()=>{
   const app=tool();app.manifest.supportsOfficial=false;setup({apps:[app]});await idle();

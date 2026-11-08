@@ -1,0 +1,55 @@
+name: Desktop packages
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Build environment
+        type: choice
+        options: [lab, production]
+        default: lab
+        required: true
+permissions:
+  contents: read
+jobs:
+  package:
+    name: ${{ matrix.platform }} (${{ inputs.environment }})
+    environment: ${{ inputs.environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            command: package:mac
+          - os: windows-latest
+            platform: windows
+            command: package:windows
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      LAUNCHONE_IDONE_ISSUER: ${{ vars.LAUNCHONE_IDONE_ISSUER }}
+      LAUNCHONE_CLIENT_ID: ${{ vars.LAUNCHONE_CLIENT_ID }}
+      LAUNCHONE_SERVICE_URL: ${{ vars.LAUNCHONE_SERVICE_URL }}
+      LAUNCHONE_CODEX_BASE_URL: ${{ vars.LAUNCHONE_CODEX_BASE_URL }}
+      LAUNCHONE_CODEX_MODEL: ${{ vars.LAUNCHONE_CODEX_MODEL }}
+      LAUNCHONE_CLAUDE_BASE_URL: ${{ vars.LAUNCHONE_CLAUDE_BASE_URL }}
+      LAUNCHONE_CLAUDE_MODEL: ${{ vars.LAUNCHONE_CLAUDE_MODEL }}
+      LAUNCHONE_UPDATE_PUBLIC_KEY: ${{ vars.LAUNCHONE_UPDATE_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run test:updates
+      - run: npm run ${{ matrix.command }} -- --environment ${{ inputs.environment }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LaunchOne-${{ inputs.environment }}-${{ matrix.platform }}
+          path: output/${{ inputs.environment }}/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 14

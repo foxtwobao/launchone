@@ -178,6 +178,10 @@ fn official_switch_keeps_original_backup_and_never_changes_auth_json() {
     let value = read_value(&path, adapter.format()).unwrap();
     assert_eq!(value["model_provider"], "openai");
     assert!(value.get("model").is_none());
+    assert_eq!(
+        value["model_providers"]["tokenone"]["experimental_bearer_token"],
+        credential().key
+    );
     assert_eq!(fs::read_to_string(auth).unwrap(), "official-auth-untouched");
     store.restore("codex", &path).unwrap();
     assert_eq!(

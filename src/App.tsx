@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, Check, ChevronDown, CircleHelp, LoaderCircle, LogIn, LogOut, ShieldCheck, Sparkles, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, LoaderCircle, LogIn, LogOut, ShieldCheck, Sparkles, X } from "lucide-react";
 import { AppCard } from "./components/AppCard";
 import { ReopenPrompt } from "./components/ReopenPrompt";
 import { bridge as defaultBridge } from "./lib/bridge";
-import type { Bridge, Progress, Snapshot } from "./lib/types";
+import type { Bridge, Progress, Snapshot, UpdateInfo } from "./lib/types";
 import { version } from "../package.json";
+
+const updateCheckInterval = 24 * 60 * 60 * 1000;
 
 export default function App({ api = defaultBridge }: { api?: Bridge }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -17,9 +19,49 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
   const [notices, setNotices] = useState<Record<string, string | undefined>>({});
   const [accountError, setAccountError] = useState<string>();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string>();
+  const [updateError, setUpdateError] = useState<string>();
   const [reopenPrompt, setReopenPrompt] = useState<{ appIds: string[]; alreadyRunning: boolean } | null>(null);
   const mounted = useRef(false);
-  const busy = loginBusy || Boolean(busyApp) || accountBusy || Boolean(reopenPrompt);
+  const updateCheckInFlight = useRef(false);
+  const lastUpdateCheckAt = useRef(0);
+  const busy = loginBusy || Boolean(busyApp) || accountBusy || Boolean(reopenPrompt) || updateInstalling;
+
+  const checkForUpdates = useCallback(async (manual = false) => {
+    if (!snapshot?.desktop || updateCheckInFlight.current) return;
+    updateCheckInFlight.current = true;
+    setUpdateChecking(true);
+    if (manual) { setUpdateError(undefined); setUpdateMessage(undefined); }
+    try {
+      const found = await api.checkUpdate();
+      if (mounted.current) {
+        setUpdateInfo(found);
+        lastUpdateCheckAt.current = Date.now();
+        if (manual) setUpdateMessage(found ? undefined : "已是最新版本");
+      }
+    } catch (error) {
+      if (manual && mounted.current) setUpdateError(String(error) || "检查更新失败，请稍后重试。");
+    } finally {
+      updateCheckInFlight.current = false;
+      if (mounted.current) setUpdateChecking(false);
+    }
+  }, [api, snapshot?.desktop]);
+
+  async function installUpdate() {
+    setUpdateInstalling(true);
+    setUpdateError(undefined);
+    try { await api.installUpdate(); }
+    catch (error) {
+      if (mounted.current) {
+        setUpdateError(String(error));
+        setUpdateInstalling(false);
+        await checkForUpdates();
+      }
+    }
+  }
 
   async function refresh() {
     const next = await api.snapshot();
@@ -47,10 +89,20 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
         const newlyInstalled = next.apps.some(a => a.installed && !snapshot?.apps.find(old => old.manifest.id === a.manifest.id)?.installed);
         if (newlyInstalled && next.account) return prepareDefaults().catch(error => setAccountError(String(error)));
       }).catch(() => {});
+      if (!busy && snapshot?.desktop && Date.now() - lastUpdateCheckAt.current >= updateCheckInterval) {
+        void checkForUpdates();
+      }
     };
     window.addEventListener("focus", focused);
     return () => window.removeEventListener("focus", focused);
-  }, [api, busy, snapshot]);
+  }, [api, busy, snapshot, checkForUpdates]);
+
+  useEffect(() => {
+    if (!snapshot?.desktop) return;
+    void checkForUpdates();
+    const timer = window.setInterval(() => void checkForUpdates(), updateCheckInterval);
+    return () => window.clearInterval(timer);
+  }, [snapshot?.desktop, checkForUpdates]);
 
   async function prepareDefaults() {
     setBusyApp("defaults");
@@ -110,7 +162,7 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
 
   return <div className="shell">
     <header className="app-header">
-      <a className="wordmark" href="#main" aria-label="LaunchOne 首页"><span className="brand-mark" aria-hidden="true"><ArrowUpRight size={20} strokeWidth={2.5} /></span>Launch<span>One</span></a>
+      <a className="wordmark" href="#main" aria-label={`LaunchOne v${version} 首页`}><span className="brand-mark" aria-hidden="true"><ArrowUpRight size={20} strokeWidth={2.5} /></span>Launch<span>One</span><span className="wordmark-version">v{version}{import.meta.env.VITE_BUILD_ENV === "lab" ? " · Lab" : ""}</span></a>
       <div className="header-right"><span className="product-tag">FOR TOKENONE</span>
         {snapshot?.account && <details className="account-menu"><summary><span className="avatar">{snapshot.account.name.slice(0, 1)}</span>{snapshot.account.name}<ChevronDown size={14} /></summary><div className="menu-panel"><p>退出不会清除工具配置</p><button disabled={busy} onClick={() => void logout()}><LogOut size={15} />退出 IDONE</button></div></details>}
       </div>
@@ -142,7 +194,14 @@ export default function App({ api = defaultBridge }: { api?: Bridge }) {
       <div className="assurance"><ShieldCheck size={17} /><span>保留原有设置</span><i /><span>随时切回订阅</span><i /><span>配置完成即可关闭</span></div>
     </main>
 
-    <footer><span className="footer-brand"><Sparkles size={13} />LaunchOne v{version}</span><button className="help-button" onClick={() => setHelpOpen(!helpOpen)} aria-expanded={helpOpen}><CircleHelp size={14} />使用帮助</button></footer>
+    <footer><span className="footer-brand"><Sparkles size={13} />LaunchOne v{version}
+      <button className="update-button" onClick={() => updateInfo ? void installUpdate() : void checkForUpdates(true)} disabled={!snapshot?.desktop || updateChecking || busy} title={updateInfo?.notes || "检查 LaunchOne 更新"}>
+        {updateChecking || updateInstalling ? <LoaderCircle className="spin" size={13} /> : updateInfo ? <ArrowDownToLine size={13} /> : null}
+        {updateInstalling ? "正在安装" : updateChecking ? "检查中" : updateInfo ? `更新到 v${updateInfo.version}` : "检查更新"}
+      </button>
+      {updateMessage && <span role="status">{updateMessage}</span>}
+      {updateError && <span className="update-error" role="alert">{updateError}</span>}
+    </span><button className="help-button" onClick={() => setHelpOpen(!helpOpen)} aria-expanded={helpOpen}><CircleHelp size={14} />使用帮助</button></footer>
     {helpOpen && <aside className="help-panel" aria-label="使用帮助"><button className="icon-button" aria-label="关闭帮助" onClick={() => setHelpOpen(false)}><X size={16} /></button><h2>配置好，就可以继续工作。</h2><p>已安装应用直接点击“打开”。首次登录 IDONE 后默认准备 TokenOne，之后保留你选择的使用方式；未安装的应用点击“安装”。</p><p>在卡片上切换“TokenOne / 官方订阅”，切换后确认重新打开，使配置生效。官方登录与订阅资格由原应用确认。“高级”中的“恢复原配置”用于撤销 LaunchOne 的修改，并保留无关设置。</p></aside>}
     {reopenPrompt && <ReopenPrompt alreadyRunning={reopenPrompt.alreadyRunning} names={reopenPrompt.appIds.map(id => snapshot?.apps.find(a => a.manifest.id === id)?.manifest.name ?? id)} onLater={() => setReopenPrompt(null)} onConfirm={() => {
       const ids = reopenPrompt.appIds;

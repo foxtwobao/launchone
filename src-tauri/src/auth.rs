@@ -13,6 +13,14 @@ use tokio::time::Instant;
 
 const DEVICE_GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 
+fn credential_namespace() -> &'static str {
+    if option_env!("LAUNCHONE_BUILD_ENV") == Some("lab") {
+        "com.tokenone.launchone.lab"
+    } else {
+        "com.tokenone.launchone"
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Session {
     service_binding: String,
@@ -70,7 +78,7 @@ pub struct Auth {
 
 impl Auth {
     pub fn new(settings: Settings) -> Self {
-        let saved = keyring::Entry::new("com.tokenone.launchone", "idone")
+        let saved = keyring::Entry::new(credential_namespace(), "idone")
             .ok()
             .and_then(|e| e.get_password().ok())
             .and_then(|s| serde_json::from_str::<Session>(&s).ok())
@@ -308,7 +316,7 @@ impl Auth {
             *self.session.lock().await = None;
             return Ok(());
         }
-        let entry = keyring::Entry::new("com.tokenone.launchone", "idone")
+        let entry = keyring::Entry::new(credential_namespace(), "idone")
             .map_err(|_| message("无法访问系统凭据存储"))?;
         match entry.delete_credential() {
             Ok(_) | Err(keyring::Error::NoEntry) => {}
@@ -453,7 +461,7 @@ impl Auth {
         if self.isolated {
             return Ok(());
         }
-        keyring::Entry::new("com.tokenone.launchone", "idone")
+        keyring::Entry::new(credential_namespace(), "idone")
             .and_then(|entry| {
                 entry.set_password(&serde_json::to_string(session).expect("serializable session"))
             })
@@ -664,6 +672,7 @@ mod tests {
             issuer: Some(fixture.base.clone()),
             service_url: Some(fixture.base.clone()),
             client_id: Some("fixture-public-client".into()),
+            update_public_key: None,
             endpoints: [(
                 "codex".into(),
                 (format!("{}/v1", fixture.base), "fixture-model".into()),

@@ -77,6 +77,7 @@ export function AppCard({ app, signedIn, desktop, ready, busy, progress, error, 
       {app.manifest.supportsOfficial && <button aria-label={`${name}：官方订阅`} aria-pressed={app.installed && app.mode === "official"} disabled={busy || unavailable || !app.installed || app.mode === "official"} onClick={onOfficial}>官方订阅</button>}
     </div>
     {app.installed && app.restartRequired && <p className="mode-hint">待重新打开使配置生效，点击“打开”后确认即可。</p>}
+    {app.manifest.id === "codex" && app.installed && <p className="mode-hint">切换不会删除会话；续接沿用会话原 Provider。</p>}
     {app.installed && !app.tokenoneSupported && <p className="mode-hint">当前版本未检测到 Codex 网关支持，请先升级官方桌面应用。仍可直接打开使用。</p>}
     {app.installed && !signedIn && <p className="mode-hint">登录 IDONE 后可使用 TokenOne；打开应用和官方订阅无需登录。</p>}
     <button className="setup-button" disabled={busy || unavailable || (!app.installed && Boolean(app.error))} onClick={app.installed ? onOpen : onInstall} aria-label={`${name}：${label}`}>

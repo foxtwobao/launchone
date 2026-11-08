@@ -33,6 +33,7 @@ export interface Snapshot {
 }
 
 export interface Progress { appId: string; stage: string; message: string }
+export interface UpdateInfo { version: string; notes: string | null; date: string | null }
 
 export interface Bridge {
   snapshot(): Promise<Snapshot>;
@@ -46,5 +47,7 @@ export interface Bridge {
   reopen(appId: string): Promise<void>;
   install(appId: string): Promise<boolean>;
   defaults(): Promise<{ appId: string; message: string }[]>;
+  checkUpdate(): Promise<UpdateInfo | null>;
+  installUpdate(): Promise<void>;
   subscribe(callback: (progress: Progress) => void): Promise<() => void>;
 }

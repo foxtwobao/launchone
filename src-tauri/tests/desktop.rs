@@ -381,6 +381,10 @@ async fn codex_switch_keeps_account_local_and_ssh_projects_and_completed_onboard
             b"fixture-user-database".to_vec(),
         ),
         (
+            root.join("sessions/2026/11/07/rollout-fixture.jsonl"),
+            b"{\"type\":\"session_meta\",\"payload\":{\"model_provider\":\"tokenone\"}}\n".to_vec(),
+        ),
+        (
             temp.path().join(".ssh/config"),
             b"Host fixture\n  HostName fixture.example.test\n".to_vec(),
         ),
@@ -413,6 +417,16 @@ async fn codex_switch_keeps_account_local_and_ssh_projects_and_completed_onboard
             assert_eq!(
                 config["model_providers"]["tokenone"]["base_url"],
                 c.base_url
+            );
+        } else {
+            assert_eq!(config["model_provider"], "openai");
+            assert_eq!(
+                config["model_providers"]["tokenone"]["experimental_bearer_token"],
+                c.key
+            );
+            assert_eq!(
+                adapter.mode(&config, Some(&c.base_url)).unwrap(),
+                Mode::Official
             );
         }
         assert_eq!(

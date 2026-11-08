@@ -6,6 +6,7 @@ pub struct Settings {
     pub issuer: Option<String>,
     pub service_url: Option<String>,
     pub client_id: Option<String>,
+    pub update_public_key: Option<String>,
     pub endpoints: HashMap<String, (String, String)>,
 }
 
@@ -42,6 +43,7 @@ impl Settings {
             issuer: setting!("LAUNCHONE_IDONE_ISSUER"),
             service_url: setting!("LAUNCHONE_SERVICE_URL"),
             client_id: setting!("LAUNCHONE_CLIENT_ID"),
+            update_public_key: setting!("LAUNCHONE_UPDATE_PUBLIC_KEY"),
             endpoints,
         }
     }

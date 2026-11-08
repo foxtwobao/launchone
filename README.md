@@ -1,6 +1,6 @@
 # LaunchOne
 
-TokenOne 专用桌面应用安装和配置助手，面向 macOS、Windows。0.2.3 首页以 ChatGPT / Codex 和 Claude 桌面端为主，已有 CLI 适配器保留为代码中的补充能力。
+TokenOne 专用桌面应用安装和配置助手，面向 macOS、Windows。0.2.4 首页以 ChatGPT / Codex 和 Claude 桌面端为主，已有 CLI 适配器保留为代码中的补充能力。
 
 已安装应用直接“打开”，不要求登录 IDONE。首次登录后默认准备已安装且支持接入的应用的 TokenOne 配置；卡片可直接切换“TokenOne / 官方订阅”，主动选择会持久保存。“恢复原配置”放在卡片的“高级”菜单，不与订阅切换混用。切换后提示确认重新打开；选择稍后会保留提醒。正常退出失败时不强制结束任务。切换前备份接入字段，失败回滚，保留无关设置。
 
@@ -27,7 +27,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 配置测试必须使用 `Context::isolated` 和临时目录，不能访问宿主机 CLI 配置、`CODEX_HOME`、`CLAUDE_CONFIG_DIR` 或系统钥匙串。
 
-Mac 在本机或私有 GitHub Actions 运行 `npm run package:mac`，读取忽略的 `.env.local` 或同名仓库 Variables；参数缺失直接拒绝打包。通用 DMG、应用 ZIP、校验值和说明在 `output/macos/`。Windows 使用官方安装入口，由系统完成安装授权，返回 LaunchOne 后重新检测；不能把下载页打开当作安装成功。
+本地开发运行 `npm run desktop`，默认使用 Lab。打包运行 `npm run package:mac -- --environment lab` 或 `npm run package:windows -- --environment lab`；正式包明确改为 `production`。私有 GitHub Actions 的 Desktop packages 提供同样选择。环境配置、签名和 lab 更新发布见 [构建与更新](docs/build-and-updates.md)。Windows 使用官方安装入口，由系统完成安装授权，返回 LaunchOne 后重新检测；不能把下载页打开当作安装成功。
 
 ## 代码与扩展
 

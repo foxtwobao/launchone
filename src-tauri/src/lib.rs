@@ -16,9 +16,84 @@ mod desktop {
     use crate::models::{Account, DefaultFailure, Progress, Snapshot};
     use crate::service::Runtime;
     use crate::settings::Settings;
+    use serde::Serialize;
     use std::sync::Arc;
     use tauri::{Emitter, Manager, State};
     use tauri_plugin_opener::OpenerExt;
+    use tauri_plugin_updater::UpdaterExt;
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct UpdateInfo {
+        version: String,
+        notes: Option<String>,
+        date: Option<String>,
+    }
+
+    fn updater(
+        app: &tauri::AppHandle,
+        settings: &Settings,
+    ) -> Result<tauri_plugin_updater::Updater> {
+        let base = settings
+            .service_url
+            .as_deref()
+            .ok_or_else(|| message("更新服务尚未配置"))?;
+        let public_key = settings
+            .update_public_key
+            .as_deref()
+            .ok_or_else(|| message("更新服务尚未配置"))?;
+        let endpoint = format!(
+            "{}/v1/updates/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}",
+            base.trim_end_matches('/')
+        )
+        .parse()
+        .map_err(|_| message("更新服务地址无效"))?;
+        app.updater_builder()
+            .pubkey(public_key)
+            .timeout(std::time::Duration::from_secs(30))
+            .endpoints(vec![endpoint])
+            .map_err(|_| message("更新服务配置无效"))?
+            .build()
+            .map_err(|_| message("无法初始化更新服务"))
+    }
+
+    #[tauri::command]
+    async fn check_update(
+        app: tauri::AppHandle,
+        runtime: State<'_, Arc<Runtime>>,
+    ) -> Result<Option<UpdateInfo>> {
+        if !runtime
+            .settings
+            .update_public_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty())
+        {
+            return Err(message("更新服务尚未配置"));
+        }
+        let update = updater(&app, &runtime.settings)?
+            .check()
+            .await
+            .map_err(|_| message("暂时无法检查更新"))?;
+        Ok(update.map(|update| UpdateInfo {
+            version: update.version,
+            notes: update.body,
+            date: update.date.map(|date| date.to_string()),
+        }))
+    }
+
+    #[tauri::command]
+    async fn install_update(app: tauri::AppHandle, runtime: State<'_, Arc<Runtime>>) -> Result<()> {
+        let update = updater(&app, &runtime.settings)?
+            .check()
+            .await
+            .map_err(|_| message("暂时无法检查更新"))?
+            .ok_or_else(|| message("当前已是最新版本"))?;
+        update
+            .download_and_install(|_, _| {}, || {})
+            .await
+            .map_err(|_| message("更新安装失败，请稍后重试"))?;
+        app.restart()
+    }
 
     #[tauri::command]
     async fn get_snapshot(runtime: State<'_, Arc<Runtime>>) -> Result<Snapshot> {
@@ -170,6 +245,7 @@ mod desktop {
     pub fn run() {
         tauri::Builder::default()
             .plugin(tauri_plugin_opener::init())
+            .plugin(tauri_plugin_updater::Builder::new().build())
             .setup(|app| {
                 let home = dirs::home_dir().ok_or("无法确定用户目录")?;
                 let data = app.path().app_local_data_dir()?;
@@ -191,7 +267,9 @@ mod desktop {
                 open_app,
                 reopen_app,
                 install_app,
-                prepare_defaults
+                prepare_defaults,
+                check_update,
+                install_update
             ])
             .run(tauri::generate_context!())
             .expect("无法启动 LaunchOne 桌面窗口");
