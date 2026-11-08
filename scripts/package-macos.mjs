@@ -32,7 +32,7 @@ run('xcrun', ['--find', 'clang']);
 run('rustup', ['target', 'add', 'aarch64-apple-darwin', 'x86_64-apple-darwin']);
 run(process.execPath, [join(root, 'node_modules/@tauri-apps/cli/tauri.js'), 'build', '--target', 'universal-apple-darwin',
   '--bundles', 'app,dmg', '--config', JSON.stringify({
-    ...applicationConfig(profile),
+    ...applicationConfig(profile, env.LAUNCHONE_UPDATE_PUBLIC_KEY),
     bundle: { macOS: { signingIdentity: profile === 'lab' ? '-' : undefined }, createUpdaterArtifacts: signedUpdater },
   })]);
 

@@ -32,8 +32,9 @@ export function selectedEnvironment(args = process.argv.slice(2)) {
   return index >= 0 ? args[index + 1] : undefined;
 }
 
-export function applicationConfig(profile) {
-  return profile === "lab" ? { productName: "LaunchOne Lab", identifier: "com.tokenone.launchone.lab",
+export function applicationConfig(profile, publicKey) {
+  const identity = profile === "lab" ? { productName: "LaunchOne Lab", identifier: "com.tokenone.launchone.lab",
     app: { windows: [{ label: "main", title: "LaunchOne Lab", width: 980, height: 740,
       minWidth: 680, minHeight: 600, center: true }] } } : {};
+  return { ...identity, ...(publicKey ? { plugins: { updater: { pubkey: publicKey, requireSignedVersion: true } } } : {}) };
 }

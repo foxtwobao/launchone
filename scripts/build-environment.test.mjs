@@ -12,6 +12,8 @@ test("packaging requires explicit environment and lab ignores ambient endpoint o
   assert.equal(selectedEnvironment(["--environment", "lab"]), "lab");
   assert.equal(applicationConfig("lab").identifier, "com.tokenone.launchone.lab");
   assert.deepEqual(applicationConfig("production"), {});
+  assert.equal(applicationConfig("lab", lab.LAUNCHONE_UPDATE_PUBLIC_KEY).plugins.updater.pubkey,
+    lab.LAUNCHONE_UPDATE_PUBLIC_KEY);
 });
 
 test("production rejects missing settings, lab addresses and credentials in URLs", () => {

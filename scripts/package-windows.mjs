@@ -26,7 +26,7 @@ function run(command, args) {
 }
 
 run(process.execPath, [join(root, "node_modules/@tauri-apps/cli/tauri.js"), "build", "--bundles", "nsis", "--config", JSON.stringify({
-  ...applicationConfig(profile),
+  ...applicationConfig(profile, env.LAUNCHONE_UPDATE_PUBLIC_KEY),
   bundle: { createUpdaterArtifacts: signedUpdater },
 })]);
 
