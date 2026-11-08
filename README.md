@@ -15,13 +15,14 @@ npm ci
 npm run desktop
 ```
 
-`npm run dev` 为只读浏览器预览，不伪造桌面安装或认证结果。开发参数见 [.env.example](.env.example)，需导出到运行环境。发布参数编译进 Rust 后端，不能由界面改为任意供应商；独立 Reseller 应用凭证只放服务端。
+`npm run dev` 为只读浏览器预览，不伪造桌面安装或认证结果。开发连接读取 [config/lab.json](config/lab.json)；正式构建参数格式见 [.env.example](.env.example)，通过 `.env.production` 或 CI 提供。发布参数编译进 Rust 后端，不能由界面改为任意供应商；独立 Reseller 应用凭证只放服务端。
 
 ```bash
 npm run build
 npm test
 npm run test:core
 npm run test:service
+npm run test:updates
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 

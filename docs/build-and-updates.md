@@ -15,7 +15,11 @@
 
 Lab 的应用名称为 `LaunchOne Lab`，左上角显示版本与 `Lab`，应用身份、IDONE 钥匙串及更新签名和正式版分开。它们配置的目标 Codex/Claude 仍是用户同一套应用，因此接入备份、切换偏好和配置锁共用原目录，延续 0.2.3 的原始备份，避免重复备份把已修改配置当成原配置。旧版首次安装 Lab 包后需要重新登录。
 
-GitHub Actions 的 **Desktop packages** 选择 `lab` / `production`，同时构建 macOS 通用包和 Windows x64。更新签名 secret 按同名 GitHub Environment 保存。产物在 `output/<环境>/<macos 或 windows>/`，也可从对应 Actions 运行下载。正式配置尚未提供，因此目前可实际发布的是 lab。
+GitHub Actions 的 **Desktop packages** 选择 `lab` / `production`，同时构建 macOS 通用包和 Windows x64。更新签名 secret 按同名 GitHub Environment 保存。产物在 `output/<环境>/<macos 或 windows>/`，也可从对应 Actions 运行下载。正式配置尚未提供，因此目前可实际发布的是 lab。当前实现位于 `codex/lab-updates-0.2.4` 分支，可直接触发：
+
+```sh
+gh workflow run macos-test.yml -R foxtwobao/launchone-build --ref codex/lab-updates-0.2.4 -f environment=lab
+```
 
 ## Lab 部署和发布
 
