@@ -40,7 +40,7 @@ npm run updates:publish:lab
 
 ## 实际 updater 验证
 
-发布后可在 lab 主机运行以下命令；它使用应用同版本的 Tauri updater，验证 HTTPS、三个平台的下载和签名、签名版本一致性、篡改拒绝，以及同版本和较新版本不会降级；不会安装软件或操作用户配置：
+发布后可在 lab 主机运行以下命令；它使用应用同版本的 Tauri updater，验证 HTTPS、三个平台的下载和签名、签名版本一致性、篡改拒绝，以及同版本和较新版本不会降级；不会安装软件或操作用户配置。只验证已发布的 macOS 时，在命令末尾加 `macos`，Windows 则加 `windows`：
 
 ```sh
 cargo run --manifest-path src-tauri/Cargo.toml --features updater-smoke --example probe_updates -- config/lab.json output/updates/lab/probe

@@ -5,8 +5,10 @@ use tauri_plugin_updater::UpdaterExt;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 2 {
-        return Err("usage: probe_updates CONFIG_JSON DOWNLOAD_DIRECTORY".into());
+    if !(2..=3).contains(&args.len()) {
+        return Err(
+            "usage: probe_updates CONFIG_JSON DOWNLOAD_DIRECTORY [macos|windows|all]".into(),
+        );
     }
     let config: serde_json::Value = serde_json::from_slice(&fs::read(&args[0])?)?;
     let origin = config["LAUNCHONE_SERVICE_URL"]
@@ -19,11 +21,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&output)?;
     let runtime = tokio::runtime::Runtime::new()?;
     let mut downloaded = 0;
-    for (target, arch) in [
-        ("darwin", "aarch64"),
-        ("darwin", "x86_64"),
-        ("windows", "x86_64"),
-    ] {
+    let platforms: &[(&str, &str)] = match args.get(2).map(String::as_str).unwrap_or("all") {
+        "macos" => &[("darwin", "aarch64"), ("darwin", "x86_64")],
+        "windows" => &[("windows", "x86_64")],
+        "all" => &[
+            ("darwin", "aarch64"),
+            ("darwin", "x86_64"),
+            ("windows", "x86_64"),
+        ],
+        _ => return Err("choose macos, windows or all".into()),
+    };
+    for (target, arch) in platforms {
         for (current, expected) in [
             ("0.2.3", true),
             (env!("CARGO_PKG_VERSION"), false),
@@ -76,7 +84,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
-    if downloaded != 3 {
+    if downloaded != platforms.len() {
         return Err("not all platform downloads were verified".into());
     }
     Ok(())
