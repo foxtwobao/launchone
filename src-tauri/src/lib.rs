@@ -248,7 +248,9 @@ mod desktop {
             .plugin(tauri_plugin_updater::Builder::new().build())
             .setup(|app| {
                 let home = dirs::home_dir().ok_or("无法确定用户目录")?;
-                let data = app.path().app_local_data_dir()?;
+                // Both builds manage the same Codex/Claude files. Share their
+                // original backups and config lock, including backups from 0.2.3.
+                let data = app.path().local_data_dir()?.join("com.tokenone.launchone");
                 app.manage(Arc::new(Runtime::new(
                     home,
                     data,

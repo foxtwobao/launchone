@@ -36,3 +36,29 @@ test("creates a platform manifest from public artifact URLs and signatures", asy
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("publishes mac alone and rejects incomplete input without replacing the previous manifest", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "launchone-single-platform-"));
+  try {
+    const signature = join(directory, "mac.sig");
+    const output = join(directory, "latest.json");
+    await writeFile(signature, "fixture-signature\n");
+    const env = { ...process.env, LAUNCHONE_UPDATE_MACOS_URL: "https://updates.test/app.tar.gz",
+      LAUNCHONE_UPDATE_MACOS_SIGNATURE_FILE: signature, LAUNCHONE_UPDATE_WINDOWS_URL: "",
+      LAUNCHONE_UPDATE_WINDOWS_SIGNATURE_FILE: "", LAUNCHONE_UPDATE_MANIFEST_OUTPUT: output };
+    const run = changes => spawnSync(process.execPath, ["scripts/create-update-manifest.mjs"], {
+      cwd: new URL("..", import.meta.url), encoding: "utf8", env: { ...env, ...changes },
+    });
+    assert.equal(run({}).status, 0);
+    const before = await readFile(output, "utf8");
+    assert.deepEqual(Object.keys(JSON.parse(before).platforms), ["darwin-aarch64", "darwin-x86_64"]);
+    for (const changes of [
+      { LAUNCHONE_UPDATE_MACOS_SIGNATURE_FILE: "" },
+      { LAUNCHONE_UPDATE_WINDOWS_URL: "https://updates.test/setup.exe" },
+      { LAUNCHONE_UPDATE_MACOS_URL: "http://updates.test/app.tar.gz" },
+    ]) {
+      assert.notEqual(run(changes).status, 0);
+      assert.equal(await readFile(output, "utf8"), before);
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

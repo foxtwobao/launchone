@@ -18,6 +18,12 @@ required-features = ["desktop"]
 default = ["desktop"]
 desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-opener", "dep:tauri-plugin-updater"]
 
+updater-smoke = ["desktop", "tauri/test"]
+
+[[example]]
+name = "probe_updates"
+required-features = ["updater-smoke"]
+
 [build-dependencies]
 tauri-build = { version = "2", optional = true }
 
