@@ -18,7 +18,7 @@ Lab 的应用名称为 `LaunchOne Lab`，左上角显示版本与 `Lab`，应用
 GitHub Actions 的 **Desktop packages** 选择 `lab` / `production`，同时构建 macOS 通用包和 Windows x64。更新签名 secret 按同名 GitHub Environment 保存。产物在 `output/<环境>/<macos 或 windows>/`，也可从对应 Actions 运行下载。正式配置尚未提供，因此目前可实际发布的是 lab。当前实现位于 `codex/lab-updates-0.2.4` 分支，可直接触发：
 
 ```sh
-gh workflow run macos-test.yml -R foxtwobao/launchone-build --ref codex/lab-updates-0.2.4 -f environment=lab
+gh workflow run macos-test.yml -R foxtwobao/launchone --ref codex/lab-updates-0.2.4 -f environment=lab
 ```
 
 ## Lab 部署和发布
