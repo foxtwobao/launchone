@@ -23,10 +23,6 @@ jobs:
   package:
     name: ${{ matrix.platform }} (${{ inputs.environment }})
     environment: ${{ inputs.environment == 'production' && 'desktop-release' || 'lab' }}
-    # Windows production signing uses Azure OIDC, just as Botone does.
-    permissions:
-      contents: read
-      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -70,26 +66,6 @@ jobs:
       - run: npm ci
       - run: npm run test:updates
 
-      - name: Set up Windows signing runtime
-        if: matrix.platform == 'windows' && inputs.environment == 'production'
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Install Windows Artifact Signing client
-        if: matrix.platform == 'windows' && inputs.environment == 'production'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          nuget install Microsoft.ArtifactSigning.Client -Version 1.0.151 -OutputDirectory (Join-Path $env:RUNNER_TEMP 'launchone-signing') -ExcludeVersion -NonInteractive -Source https://api.nuget.org/v3/index.json
-          if ($LASTEXITCODE -ne 0) { throw 'Artifact Signing client installation failed' }
-      - name: Log in to Azure for Windows signing
-        if: matrix.platform == 'windows' && inputs.environment == 'production'
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
-        with:
-          client-id: ${{ secrets.DESKTOP_WIN_AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.DESKTOP_WIN_AZURE_TENANT_ID }}
-          allow-no-subscriptions: true
-
       - name: Package Lab app
         if: inputs.environment == 'lab'
         env:
@@ -107,17 +83,11 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID || secrets.APPLE_API_ISSUER }}
           APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
         run: npm run package:mac -- --environment production
-      - name: Package signed Windows x64 app
+      - name: Package unsigned Windows x64 app
         if: matrix.platform == 'windows' && inputs.environment == 'production'
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          DESKTOP_WIN_AZURE_CLIENT_ID: ${{ secrets.DESKTOP_WIN_AZURE_CLIENT_ID }}
-          DESKTOP_WIN_AZURE_TENANT_ID: ${{ secrets.DESKTOP_WIN_AZURE_TENANT_ID }}
-          DESKTOP_WIN_SIGNING_ENDPOINT: ${{ vars.DESKTOP_WIN_SIGNING_ENDPOINT }}
-          DESKTOP_WIN_SIGNING_ACCOUNT: ${{ vars.DESKTOP_WIN_SIGNING_ACCOUNT }}
-          DESKTOP_WIN_SIGNING_PROFILE: ${{ vars.DESKTOP_WIN_SIGNING_PROFILE }}
-          DESKTOP_WIN_PUBLISHER: ${{ vars.DESKTOP_WIN_PUBLISHER }}
         run: npm run package:windows -- --environment production
 
       - name: Retain installers, updater signatures and checksums

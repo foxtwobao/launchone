@@ -13,7 +13,7 @@
 | 页面上的位置 | 用来放什么 | 怎么填 |
 | --- | --- | --- |
 | **Environment secrets → Add secret** | 密钥、密码、签名材料 | Name 填下表中的配置名，Secret 填对应内容 |
-| **Environment variables → Add variable** | LaunchOne 服务入口、更新公钥和 Windows 签名账号设置 | Name 填下表中的配置名，Value 填对应内容 |
+| **Environment variables → Add variable** | LaunchOne 服务入口和更新公钥 | Name 填下表中的配置名，Value 填对应内容 |
 
 下面写 **Secret** 就填第一处，写 **Variable** 就填第二处。配置名原样复制，大小写和下划线都要保留。[GitHub 官方操作说明](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets#creating-secrets-for-an-environment)。
 
@@ -86,11 +86,11 @@ npm run tauri -- signer generate -w ../launchone-production.key
 
 填文件里的文字，不填文件路径，也不用再编码。私钥和密码只在 GitHub 或发布机器上使用，不进入客户端；安装包只保存公钥。把私钥文件和密码保存到自己的密码库或安全备份中，以后给其他电脑配置打包也要用它。
 
-`TAURI` 是打包工具沿用的配置名前缀，照表复制即可。这对更新密钥由 LaunchOne 单独生成，下面的苹果和 Windows 签名材料继续复用 Botone。
+`TAURI` 是打包工具沿用的配置名前缀，照表复制即可。这对更新密钥由 LaunchOne 单独生成，下面的苹果签名材料继续复用 Botone。
 
 ## 4. 填所需平台的签名配置
 
-只打 macOS 就做 4A，只打 Windows 就做 4B；两个都打就都做。这里沿用 Botone **当前启用**的 [macOS 发布流程](https://github.com/foxtwobao/botone/blob/main/.github/workflows/botone-release-macos.yml)和 [Windows 发布流程](https://github.com/foxtwobao/botone/blob/main/.github/workflows/botone-release-windows.yml)的配置名，旧 `release-desktop.yml` 已停用。
+macOS 按 4A 配置苹果签名；Windows 目前不需要发布者签名材料，见 4B。苹果配置名沿用 Botone **当前启用**的 [macOS 发布流程](https://github.com/foxtwobao/botone/blob/main/.github/workflows/botone-release-macos.yml)，旧 `release-desktop.yml` 已停用。
 
 **GitHub 不能显示已保存的 Secret 内容。** 复用时，要从你当初给 Botone 配置时保存的文件或密码库中取值，再填到 LaunchOne。如果已有组织级 Secret，也可以直接给 LaunchOne 仓库开放使用权限。
 
@@ -119,34 +119,11 @@ node -e "const fs = require('node:fs'); fs.writeFileSync('AuthKey.p8.base64.txt'
 
 如果 `.p12` 备份找不到，但签名用的 Mac 还在，可在“钥匙串访问 → 我的证书”中导出 **Developer ID Application** 签名身份为 `.p12`，导出时设置密码。苹果 `.p8` 只能下载一次，原文件丢失需要在 Apple 后台新建 Key，并同时换掉对应的 Key ID。参见 [Apple 证书说明](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/)和 [Apple API Key 说明](https://developer.apple.com/help/app-store-connect/get-started/app-store-connect-api)。
 
-### 4B. Windows：沿用 Botone 的 6 项配置，再给新仓库开权限
+### 4B. Windows：暂不做发布者签名，无需 Azure 配置
 
-Botone 已经在用 Azure 签名，沿用同一个签名应用和账号即可。
+Windows 测试包和正式包都可以直接构建，不需要 `DESKTOP_WIN_*` 配置、Azure 账号或签名工具。已有的这些配置不会再被构建使用，可以删除。Windows 安装时可能显示“未知发布者”或 SmartScreen 提示。
 
-| 配置名 | 填到哪里 | 从哪里拿 |
-| --- | --- | --- |
-| `DESKTOP_WIN_AZURE_CLIENT_ID` | **Secret** | Botone 原有值；或 Azure → Microsoft Entra ID → App registrations → Botone 使用的签名应用 → Overview → **Application (client) ID** |
-| `DESKTOP_WIN_AZURE_TENANT_ID` | **Secret** | 同一 Azure 页面里的 **Directory (tenant) ID** |
-| `DESKTOP_WIN_SIGNING_ENDPOINT` | **Variable** | Botone 同名 Variable，签名服务的区域地址 |
-| `DESKTOP_WIN_SIGNING_ACCOUNT` | **Variable** | Botone 同名 Variable，签名账号名称 |
-| `DESKTOP_WIN_SIGNING_PROFILE` | **Variable** | Botone 同名 Variable，证书配置名称 |
-| `DESKTOP_WIN_PUBLISHER` | **Variable** | Botone 同名 Variable，证书上的发布者名称，完整照抄 |
-
-Botone 的普通 Variable 能直接查看：先看 **Settings → Environments → desktop-release → Environment variables**；如果不在这里，再看 **Settings → Secrets and variables → Actions → Variables**。
-
-还需做一次“允许 LaunchOne 仓库使用这个签名应用”：打开上面的 Azure 签名应用 → **Certificates & secrets → Federated credentials → Add credential**，选择 **GitHub Actions deploying Azure resources**，填写：
-
-| 页面字段 | 填什么 |
-| --- | --- |
-| Organization | LaunchOne 仓库地址中 `github.com/` 后面的用户名或组织名 |
-| Repository | LaunchOne 仓库名 |
-| Entity type | **Environment** |
-| GitHub environment name | **`desktop-release`** |
-| Name | 自己取一个便于识别的名称，例如 `launchone-desktop-release` |
-
-如果页面要求手动填写完整内容：Issuer 是 `https://token.actions.githubusercontent.com`，Audience 是 `api://AzureADTokenExchange`，Subject 是 `repo:仓库所有者/仓库名:environment:desktop-release`，把其中“仓库所有者/仓库名”换成实际值。
-
-保存后，这个签名应用仍需有目标证书配置的 **Artifact Signing Certificate Profile Signer** 权限；沿用 Botone 已经可用的应用和证书配置时，保留原权限即可。参见 [Microsoft 仓库授权步骤](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation-create-trust)和[签名权限说明](https://learn.microsoft.com/en-us/azure/artifact-signing/tutorial-assign-roles)。
+第 3 步的 **LaunchOne 更新密钥仍需保留**：它用来验证应用内更新，与 Windows 安装包的发布者签名是两回事。正式包继续使用 `desktop-release` 中的固定入口及更新密钥，测试包使用 `lab`。
 
 ## 5. 点按钮打包，下载结果
 
@@ -193,7 +170,7 @@ Botone 的普通 Variable 能直接查看：先看 **Settings → Environments �
 | Windows 内部测试包 | `npm run package:windows -- --environment lab` | `config/lab.json` |
 | 正式包 | 将上面打包命令的 `lab` 换成 `production` | 根目录 `.env.production`，或终端环境变量 |
 
-本机正式配置可以复制 `.env.example` 为 `.env.production`，只填第 2 步的服务入口和第 3 步的更新公钥。登录和模型仍由云端提供。私钥、密码和平台签名配置通过同名环境变量提供，不写进该文件或仓库；Windows 还需准备 Azure 登录和签名工具，GitHub 工作流已自动安装这些工具。
+本机正式配置可以复制 `.env.example` 为 `.env.production`，只填第 2 步的服务入口和第 3 步的更新公钥。登录和模型仍由云端提供。更新私钥、密码和苹果签名配置通过同名环境变量提供，不写进该文件或仓库；Windows 无需额外的签名配置。
 
 内部测试的固定入口读取 `config/lab.json`。正式包缺服务入口或更新公钥、使用 `localhost` 或 `*.home.arpa` 服务地址时会停止打包。模型和登录设置不再作为打包参数。
 
@@ -212,16 +189,16 @@ GitHub **Settings → Secrets and variables → Actions → Secrets** 已有的�
 
 镜像名为 **`docker.io/<DOCKERHUB_USERNAME>/launchone`**，同时提供 `linux/amd64` 和 `linux/arm64`，Docker 拉取时自动选择当前服务器的架构。
 
-发布工作流文件为 `.github/workflows/publish-dockerhub.yml`，在 Actions 中叫 **Publish Docker image**，仅手动运行。推送代码或版本标签不会自动发布。
+发布工作流文件为 `.github/workflows/publish-dockerhub.yml`，在 Actions 中叫 **Publish Docker image**。每次推送或合并到 `main` 都会自动测试、构建并发布镜像；其他分支和版本标签不会自动发布。桌面安装包仍然手动打包。
 
-打开 **Actions → Publish Docker image → Run workflow**，选择代码分支后点击运行即可，无需额外输入：
+需要重新发布或测试其他分支时，也可打开 **Actions → Publish Docker image → Run workflow**，选择代码分支后点击运行，无需额外输入：
 
 | 选择的分支 | 生成什么标签 |
 | --- | --- |
 | `main` | `latest`，以及 `sha-完整40位commit` |
 | 其他分支 | 只发布 `sha-完整40位commit`，不覆盖 `latest` |
 
-如果构建期间 `main` 又有了新提交，本次只保留提交号标签，不覆盖 `latest`；重新选择最新的 `main` 运行即可。
+如果构建期间 `main` 又有了新提交，本次只保留提交号标签，不覆盖 `latest`；最新提交会由后续自动构建发布。
 
 先将工作流代码提交到 GitHub，等待工作流运行成功，镜像才会出现在 Docker Hub。**发布镜像不会自动重启或替换 Lab／生产环境中的容器。**
 
