@@ -6,18 +6,18 @@ import type { AppStatus, Bridge, Snapshot } from "../src/lib/types";
 
 function tool(id = "future-tool", name = "Future Tool"): AppStatus {
   return { manifest:{id,name,description:"可扩展桌面应用",command:"",icon:"generic",supportsOfficial:true,platforms:["macos"]},
-    installed:true,tokenoneSupported:true,restartRequired:false,version:"1.0",mode:"official",canRestore:false,supported:true,error:null };
+    installed:true,tokenoneSupported:true,restartRequired:false,version:"1.0",mode:"official",canRestore:false,supported:true,error:null,credentialAccount:null };
 }
 function setup(overrides:Partial<Snapshot>={}, changes:Partial<Bridge>={}) {
-  const snapshot:Snapshot={apps:[tool()],account:{id:"user",name:"开发者"},desktop:true,loginReady:true,tokenoneReady:true,...overrides};
+  const snapshot:Snapshot={apps:[tool()],account:{id:"user",name:"开发者"},desktop:true,loginReady:true,tokenoneReady:true,tokenonePortalReady:true,...overrides};
   const api:Bridge={
     snapshot:vi.fn(async()=>structuredClone(snapshot)),
     login:vi.fn(async()=>{ snapshot.account={id:"user",name:"开发者"};return snapshot.account; }),
-    cancelLogin:vi.fn(async()=>{}),logout:vi.fn(async()=>{snapshot.account=null;}),
+    openTokenonePortal:vi.fn(async()=>{}),cancelLogin:vi.fn(async()=>{}),logout:vi.fn(async()=>{snapshot.account=null;}),
     enable:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.mode="tokenone";}),
     official:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.mode="official";}),
     restore:vi.fn(async()=>{}),open:vi.fn(async(id)=>snapshot.apps.find(a=>a.manifest.id===id)!.restartRequired ? "restart_required" as const : "opened" as const),reopen:vi.fn(async(id)=>{snapshot.apps.find(a=>a.manifest.id===id)!.restartRequired=false;}),install:vi.fn(async()=>true),defaults:vi.fn(async()=>[]),
-    subscribe:vi.fn(async()=>()=>{}),...changes,
+    checkUpdate:vi.fn(async()=>null),installUpdate:vi.fn(async()=>{}),subscribe:vi.fn(async()=>()=>{}),...changes,
   };
   const view=render(<App api={api}/>);
   return {api,snapshot,...view};
@@ -100,7 +100,7 @@ test("未安装提供安装按钮，下载页面不算安装成功",async()=>{
   const app=tool();app.installed=false;app.mode=null;
   const {api}=setup({account:null,apps:[app]}, {install:vi.fn(async()=>false)});
   await userEvent.click(await screen.findByRole("button",{name:"Future Tool：安装"}));
-  expect(await screen.findByText(/已打开官方下载页/)).toBeVisible();
+  expect(await screen.findByText(/已打开官方安装入口/)).toBeVisible();
   expect(screen.queryByRole("button",{name:"Future Tool：打开"})).not.toBeInTheDocument();
   expect(api.enable).not.toHaveBeenCalled();
 });
@@ -108,6 +108,29 @@ test("浏览器预览不伪造安装和登录",async()=>{
   setup({account:null,desktop:false,loginReady:false});
   expect(await screen.findByRole("button",{name:"Future Tool：打开"})).toBeDisabled();
   expect(screen.getByRole("button",{name:"登录 IDONE"})).toBeDisabled();
+});
+test("Codex 切换成功后提示重新打开并新建对话",async()=>{
+  const {api}=setup({apps:[tool("codex","ChatGPT / Codex")]});
+  await screen.findByRole("button",{name:"ChatGPT / Codex：打开"});
+  expect(screen.queryByText(/重新打开 Codex 后请新建对话/)).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button",{name:"ChatGPT / Codex：TokenOne"}));
+  expect(await screen.findByText(/已切换到 TokenOne/)).toBeVisible();
+  expect(screen.getByText(/重新打开 Codex 后请新建对话/)).toBeVisible();
+  expect(api.official).not.toHaveBeenCalled();
+});
+test("发现更新后可安装，启动时检查由桌面桥接执行",async()=>{
+  const {api}=setup({}, {checkUpdate:vi.fn(async()=>({version:"0.2.4",notes:"修复问题",date:null}))});
+  const update=await screen.findByRole("button",{name:"更新到 v0.2.4"});
+  expect(api.checkUpdate).toHaveBeenCalledOnce();
+  await userEvent.click(update);
+  await waitFor(()=>expect(api.installUpdate).toHaveBeenCalledOnce());
+});
+test("更新检查失败后应用重新获得焦点时会重试",async()=>{
+  const checkUpdate=vi.fn().mockRejectedValueOnce("network error").mockResolvedValue(null);
+  const {api}=setup({}, {checkUpdate});
+  await waitFor(()=>expect(api.checkUpdate).toHaveBeenCalledOnce());
+  await act(async()=>window.dispatchEvent(new Event("focus")));
+  await waitFor(()=>expect(api.checkUpdate).toHaveBeenCalledTimes(2));
 });
 test("不支持官方方式的新增应用不展示订阅选项",async()=>{
   const app=tool();app.manifest.supportsOfficial=false;setup({apps:[app]});await idle();
@@ -184,4 +207,59 @@ test("高级恢复原配置可用且恢复后需要确认重开",async()=>{
   await userEvent.click(screen.getByRole("button",{name:"恢复原配置"}));
   expect(api.restore).toHaveBeenCalledWith("future-tool");
   expect(await screen.findByRole("dialog")).toBeVisible();expect(api.reopen).not.toHaveBeenCalled();
+});
+
+test("已配置时可从高级重新连接，失败不伪报换账号成功", async()=>{
+  const app=tool();app.mode="tokenone";app.credentialAccount="other";
+  const {api,snapshot}=setup({apps:[app]});await idle();
+  expect(screen.getByText("TokenOne 还在使用你之前登录的账号。")).toBeVisible();
+  expect(api.enable).not.toHaveBeenCalled();
+  vi.mocked(api.enable).mockRejectedValueOnce({message:"当前账号额度不足",action:"portal"});
+  await userEvent.click(screen.getByRole("button",{name:"改用当前账号"}));
+  expect(await screen.findByRole("alert")).toHaveTextContent("当前账号额度不足");await idle();
+  expect(screen.getByText("TokenOne 还在使用你之前登录的账号。")).toBeVisible();
+  await userEvent.click(screen.getByRole("button",{name:"前往 TokenOne"}));
+  expect(api.openTokenonePortal).toHaveBeenCalledOnce();
+  expect(snapshot.apps[0].credentialAccount).toBe("other");
+  vi.mocked(api.enable).mockImplementationOnce(async()=>{snapshot.apps[0].credentialAccount="current";snapshot.apps[0].restartRequired=true;});
+  await userEvent.click(screen.getByRole("button",{name:"重试"}));
+  expect(await screen.findByRole("dialog")).toBeVisible();
+  expect(screen.queryByText("TokenOne 还在使用你之前登录的账号。")).not.toBeInTheDocument();
+});
+
+test("已配置当前账号也能主动重新取凭据，不依赖切换到订阅",async()=>{
+  const app=tool();app.mode="tokenone";app.credentialAccount="current";
+  const {api}=setup({apps:[app]});await idle();
+  expect(screen.getByRole("button",{name:"Future Tool：TokenOne"})).toBeDisabled();
+  await userEvent.click(screen.getByLabelText("Future Tool 高级操作"));
+  await userEvent.click(screen.getByRole("button",{name:"重新连接 TokenOne"}));
+  await waitFor(()=>expect(api.enable).toHaveBeenCalledOnce());
+  expect(api.official).not.toHaveBeenCalled();
+});
+
+test("登录过期在卡片重新登录后继续原操作",async()=>{
+  const {api}=setup();await idle();
+  vi.mocked(api.enable).mockRejectedValueOnce({message:"登录已过期",action:"login"});
+  await userEvent.click(screen.getByRole("button",{name:"Future Tool：TokenOne"}));
+  await userEvent.click(await screen.findByRole("button",{name:"重新登录"}));
+  await waitFor(()=>expect(api.login).toHaveBeenCalledOnce());
+  await waitFor(()=>expect(api.enable).toHaveBeenCalledTimes(2));await idle();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+test("开户失败保留对应应用重试入口，未配置门户时不展示链接",async()=>{
+  const {api}=setup({tokenonePortalReady:false},{defaults:vi.fn(async()=>[{appId:"future-tool",message:"请先完成开户",action:"portal" as const}])});
+  expect(await screen.findByRole("alert")).toHaveTextContent("请先完成开户");await idle();
+  expect(screen.queryByRole("button",{name:"前往 TokenOne"})).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button",{name:"重试"}));
+  await waitFor(()=>expect(api.enable).toHaveBeenCalledWith("future-tool"));
+});
+
+test("安装中断的重试仍执行安装，不能误触发配置",async()=>{
+  const app=tool();app.installed=false;app.mode=null;
+  const {api}=setup({apps:[app],account:null},{install:vi.fn().mockRejectedValueOnce("下载中断，请重试").mockResolvedValue(false)});
+  await userEvent.click(await screen.findByRole("button",{name:"Future Tool：安装"}));
+  await userEvent.click(await screen.findByRole("button",{name:"重试"}));
+  await waitFor(()=>expect(api.install).toHaveBeenCalledTimes(2));
+  expect(api.enable).not.toHaveBeenCalled();
 });

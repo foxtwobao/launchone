@@ -1,0 +1,10 @@
+# Keep credentials, local data, desktop sources and test fixtures out of the build.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!server/
+!server/app.mjs
+!server/installers.mjs
+!server/main.mjs

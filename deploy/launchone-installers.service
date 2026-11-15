@@ -1,0 +1,20 @@
+[Unit]
+Description=Synchronize verified official desktop installers
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=launchone
+Group=launchone
+WorkingDirectory=/opt/launchone
+EnvironmentFile=/etc/launchone/installers.env
+ExecStart=/usr/bin/node /opt/launchone/scripts/sync-installers.mjs
+# Each of the four native architecture checks has bounded download/queue time.
+TimeoutStartSec=4h
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/launchone/installers

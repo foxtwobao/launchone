@@ -14,8 +14,6 @@ pub struct DesktopSpec {
     pub bundle_id: &'static str,
     pub windows_package: &'static str,
     pub windows_exe: &'static str,
-    pub mac_download: &'static str,
-    pub windows_download: &'static str,
 }
 
 pub const CODEX: DesktopSpec = DesktopSpec {
@@ -23,16 +21,12 @@ pub const CODEX: DesktopSpec = DesktopSpec {
     bundle_id: "com.openai.codex",
     windows_package: "OpenAI.Codex",
     windows_exe: "Codex.exe",
-    mac_download: "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg",
-    windows_download: "https://get.microsoft.com/installer/download/9PLM9XGG6VKS",
 };
 pub const CLAUDE: DesktopSpec = DesktopSpec {
     name: "Claude",
     bundle_id: "com.anthropic.claudefordesktop",
     windows_package: "Claude",
     windows_exe: "Claude.exe",
-    mac_download: "https://downloads.claude.ai/releases/darwin/universal/latest/Claude.dmg",
-    windows_download: "https://claude.ai/download",
 };
 
 pub struct Installation {
@@ -527,47 +521,14 @@ pub async fn reopen(spec: DesktopSpec, home: &Path) -> Result<()> {
     }
 }
 
-pub fn download_url(spec: DesktopSpec) -> &'static str {
-    if cfg!(target_os = "macos") {
-        spec.mac_download
-    } else {
-        spec.windows_download
-    }
-}
-
-pub async fn install_mac(spec: DesktopSpec, home: &Path) -> Result<()> {
+pub async fn install_mac(
+    spec: DesktopSpec,
+    home: &Path,
+    image: &Path,
+    manifest: &crate::installers::InstallerManifest,
+    target: &crate::installers::NativeTarget,
+) -> Result<()> {
     let temp = tempfile::tempdir()?;
-    let image = temp.path().join("installer.dmg");
-    // Follow only HTTPS download redirects. Signature and app identity are checked
-    // after download; nothing fetched is executed as a shell script.
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::limited(5))
-        .timeout(Duration::from_secs(600))
-        .https_only(true)
-        .build()
-        .map_err(|_| message("无法初始化下载"))?;
-    let mut response = client
-        .get(spec.mac_download)
-        .send()
-        .await
-        .map_err(|_| message("无法下载官方桌面安装包，请检查网络"))?
-        .error_for_status()
-        .map_err(|_| message("官方桌面安装包暂不可用"))?;
-    let mut file = std::fs::File::create(&image)?;
-    let mut size = 0usize;
-    use std::io::Write;
-    while let Some(bytes) = response
-        .chunk()
-        .await
-        .map_err(|_| message("安装包下载中断，请重试"))?
-    {
-        size += bytes.len();
-        if size > 1024 * 1024 * 1024 {
-            return Err(message("安装包大小异常，已停止安装"));
-        }
-        file.write_all(&bytes)?;
-    }
-    file.sync_all()?;
     let mount = temp.path().join("mounted");
     std::fs::create_dir(&mount)?;
     let attach = Command::new("/usr/bin/hdiutil")
@@ -582,7 +543,7 @@ pub async fn install_mac(spec: DesktopSpec, home: &Path) -> Result<()> {
     if !attached.status.success() {
         return Err(message("无法打开官方安装包"));
     }
-    let result = install_mounted(spec, home, &mount).await;
+    let result = install_mounted(spec, home, &mount, manifest, target).await;
     let _ = tokio::time::timeout(
         Duration::from_secs(15),
         Command::new("/usr/bin/hdiutil")
@@ -594,7 +555,13 @@ pub async fn install_mac(spec: DesktopSpec, home: &Path) -> Result<()> {
     .await;
     result
 }
-async fn install_mounted(spec: DesktopSpec, home: &Path, mount: &Path) -> Result<()> {
+async fn install_mounted(
+    spec: DesktopSpec,
+    home: &Path,
+    mount: &Path,
+    manifest: &crate::installers::InstallerManifest,
+    target: &crate::installers::NativeTarget,
+) -> Result<()> {
     let mut app = mount.join(format!("{}.app", spec.name));
     if !app.exists() && spec.name == "Codex" {
         app = mount.join("ChatGPT.app");
@@ -604,22 +571,44 @@ async fn install_mounted(spec: DesktopSpec, home: &Path, mount: &Path) -> Result
     }
     let info = plist::Value::from_file(app.join("Contents/Info.plist"))
         .map_err(|_| message("应用信息无效"))?;
+    let metadata = info
+        .as_dictionary()
+        .ok_or_else(|| message("应用信息无效"))?;
+    let value = |key: &str| metadata.get(key).and_then(plist::Value::as_string);
+    if value("CFBundleShortVersionString") != Some(manifest.version.as_str())
+        || value("CFBundleVersion") != Some(manifest.build.as_str())
+    {
+        return Err(message("安装包内版本与清单不符，未安装"));
+    }
+    let native_arch = if target.arch == "aarch64" {
+        "arm64"
+    } else {
+        "x86_64"
+    };
+    let per_arch_minimum = metadata
+        .get("LSMinimumSystemVersionByArchitecture")
+        .and_then(plist::Value::as_dictionary)
+        .and_then(|versions| versions.get(native_arch))
+        .and_then(plist::Value::as_string);
+    for minimum in [value("LSMinimumSystemVersion"), per_arch_minimum]
+        .into_iter()
+        .flatten()
+    {
+        if crate::installers::version_parts(&target.os_version)?
+            < crate::installers::version_parts(minimum)?
+            || crate::installers::version_parts(&manifest.min_os_version)?
+                < crate::installers::version_parts(minimum)?
+        {
+            return Err(message("此安装包不支持当前系统版本，未安装"));
+        }
+    }
     let executable = info
         .as_dictionary()
         .and_then(|d| d.get("CFBundleExecutable"))
         .and_then(plist::Value::as_string)
         .ok_or_else(|| message("应用入口无效"))?;
-    let arch = if std::env::consts::ARCH == "aarch64" {
-        "arm64"
-    } else {
-        "x86_64"
-    };
-    let architecture = Command::new("/usr/bin/lipo")
-        .arg(app.join("Contents/MacOS").join(executable))
-        .args(["-verify_arch", arch])
-        .output()
-        .await?;
-    if !architecture.status.success() {
+    let architectures = crate::macho::architectures(&app.join("Contents/MacOS").join(executable))?;
+    if !architectures.contains(&target.arch) {
         return Err(message("官方桌面安装包不支持当前芯片，未安装"));
     }
     for (command, args) in [
@@ -645,12 +634,18 @@ async fn install_mounted(spec: DesktopSpec, home: &Path, mount: &Path) -> Result
         .arg(&app)
         .output()
         .await?;
-    let vendor = if spec.name == "Codex" {
-        "OpenAI"
+    // Pin the Apple developer team, rather than searching an arbitrary field
+    // in codesign output for the company's display name.
+    let team = if spec.name == "Codex" {
+        "2DC432GLL2"
     } else {
-        "Anthropic"
+        "Q6L2SF6YDW"
     };
-    if !String::from_utf8_lossy(&signature.stderr).contains(vendor) {
+    if !signature.status.success()
+        || !String::from_utf8_lossy(&signature.stderr)
+            .lines()
+            .any(|line| line == format!("TeamIdentifier={team}"))
+    {
         return Err(message("官方安装包的发布者不匹配"));
     }
     let applications = home.join("Applications");

@@ -21,6 +21,7 @@ export interface AppStatus {
   canRestore: boolean;
   supported: boolean;
   error: string | null;
+  credentialAccount: "current" | "other" | "unknown" | null;
 }
 
 export interface Account { id: string; name: string }
@@ -29,22 +30,27 @@ export interface Snapshot {
   account: Account | null;
   loginReady: boolean;
   tokenoneReady: boolean;
+  tokenonePortalReady: boolean;
   desktop: boolean;
 }
 
 export interface Progress { appId: string; stage: string; message: string }
+export interface UpdateInfo { version: string; notes: string | null; date: string | null }
 
 export interface Bridge {
   snapshot(): Promise<Snapshot>;
   login(): Promise<Account>;
   cancelLogin(): Promise<void>;
   logout(): Promise<void>;
+  openTokenonePortal(): Promise<void>;
   enable(appId: string): Promise<void>;
   official(appId: string): Promise<void>;
   restore(appId: string): Promise<void>;
   open(appId: string): Promise<OpenOutcome>;
   reopen(appId: string): Promise<void>;
   install(appId: string): Promise<boolean>;
-  defaults(): Promise<{ appId: string; message: string }[]>;
+  defaults(): Promise<{ appId: string; message: string; action?: import("./failure").RecoveryAction | null }[]>;
+  checkUpdate(): Promise<UpdateInfo | null>;
+  installUpdate(): Promise<void>;
   subscribe(callback: (progress: Progress) => void): Promise<() => void>;
 }

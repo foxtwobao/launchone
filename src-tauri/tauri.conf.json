@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "LaunchOne",
-  "version": "0.2.2",
+  "version": "0.2.4",
   "identifier": "com.tokenone.launchone",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -10,23 +10,41 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{
-      "label": "main",
-      "title": "LaunchOne",
-      "width": 980,
-      "height": 740,
-      "minWidth": 680,
-      "minHeight": 600,
-      "center": true
-    }],
+    "windows": [
+      {
+        "label": "main",
+        "title": "LaunchOne",
+        "width": 980,
+        "height": 740,
+        "minWidth": 680,
+        "minHeight": 600,
+        "center": true
+      }
+    ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "nsis"],
-    "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
-    "macOS": {"minimumSystemVersion": "12.0"}
+    "createUpdaterArtifacts": false,
+    "targets": [
+      "dmg",
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "requireSignedVersion": true,
+      "pubkey": ""
+    }
   }
 }

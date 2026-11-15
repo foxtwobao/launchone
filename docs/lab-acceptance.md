@@ -49,3 +49,32 @@ Windows、macOS 的实际目标应用界面、模型请求及重启生效仍待�
 本地 20 项界面、42 项 Rust 测试与桌面编译检查通过。配置往返测试验证本地与 SSH 项目配置、auth、全局桌面状态及数据库 fixture 字节未变；fixture 仅证明不改文件，不代表真实问卷界面已验收。另用隔离 Codex 0.167.0 对本地 HTTP SSE fixture 发出真实请求并完成回复，确认 Authorization 使用 provider fixture Key，原官方 fixture Key 文件未改；无真实用户凭据或外部模型请求。
 
 仍需用户 Mac 验收：安装新包后重新选择 TokenOne、确认重开，检查原项目（含 SSH）、已完成问卷及模型调用。此前旧版产生的另一身份下新增项目不做自动数据库合并。
+
+## 0.2.3 源码修改（暂未构建安装包）
+
+按用户要求，“高级 → 恢复原配置”直接用首次备份覆盖 LaunchOne 管理的接入字段，不再因这些字段后来被客户端或用户修改而拒绝恢复。无关项目、SSH 和其他设置继续保留；多文件恢复仍使用已有事务处理，支持失败回滚和中断恢复。常规模式切换仍保留原有冲突处理。
+
+恢复改动通过隔离 Rust 测试，包括修改过接入字段后直接恢复、保留无关设置、多文件恢复中断后重试。窗口底部新增 `LaunchOne v0.2.3` 显示，版本来自 package.json，与打包版本一致，无需单独配置。此次 Mac 测试包构建状态及校验结果另行记录。
+
+## 0.2.4 Lab 更新服务（2026-11-08）
+
+更新入口已部署到 `launchone-lab.service`，复用 `https://launchone.lab.home.arpa`，原服务环境文件已在本地 private 目录备份。模型请求仍直连 TokenOne。发布目录及操作见 [构建与更新](build-and-updates.md)。
+
+本地 23 项界面、44 项 Rust、15 项服务、4 项构建与清单测试通过，前端构建及桌面编译检查通过。GitHub Actions 运行 `42440225388` 已完成 macOS 通用包的双架构编译、应用签名检查、DMG 完整性检查，以及 Windows x64 NSIS 构建和两个平台的更新签名。发布前验证了真实归档的签名、签名版本及 SHA256；包内 Lab 应用标识、版本、服务地址和公钥与配置一致。
+
+实际 Tauri updater 从 lab 的 HTTPS 接口验证 Apple Silicon、Intel、Windows x64 更新包下载及签名，验证签名版本不匹配和包内容被修改时拒绝，当前版本和更高版本不更新。测试没有安装或重启目标系统应用；macOS/Windows 实际替换安装及重启仍需真机验收。旧 0.2.3 需手动安装带更新功能的新包一次。
+
+当前 lab 更新清单为 0.2.4，包含 `darwin-aarch64`、`darwin-x86_64`、`windows-x86_64-nsis` 三个入口；完整下载和公开 HTTP Range 断点续传已验证。构建环境的修复提交为 `3a7366a`，后续提交只补充发布验证工具和文档。
+
+## 云端客户端配置部署（2026-11-15）
+
+已在 Lab 服务的 `.env` 补齐公开 Client ID、TokenOne 根地址、Codex 默认模型、Claude 默认模型及账号网页五项配置，并重启当前 `launchone-lab.service`。服务仍通过现有 Node／systemd 部署，本次没有迁移到 Docker。
+
+实际 HTTPS 检查结果：
+
+- `GET /v1/client-config` 返回 200，公开配置包含六个字段：服务已有的 IDONE issuer，以及上述五项设置；不返回应用凭证或个人 Key。
+- IDONE Discovery 仍声明设备登录及刷新授权；`GET /health` 返回 200，未登录请求凭据接口返回 401。
+- Apple Silicon、Intel、Windows x64 三个更新清单仍返回 0.2.4；更新文件的 32 字节 Range 请求返回 206，既有更新下载入口保持可用。
+- GitHub 的 Lab 更新签名 Secret 已同步现有且验证与公钥配对的私钥；该私钥未设置密码。
+
+官方客户端安装包镜像仍未部署，对应清单返回 503；Codex Windows 组合返回 404。本次验证的是配置下发、鉴权入口和既有更新服务，不代表 macOS／Windows 原应用中的模型任务、安装替换及重启已经完成真机验收。

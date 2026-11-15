@@ -20,8 +20,9 @@ a { color: inherit; text-decoration: none; }
 button, a, summary { transition: background-color 160ms, color 160ms, border-color 160ms; }
 .shell { min-height: 100vh; display: flex; flex-direction: column; max-width: 1120px; margin: 0 auto; padding: 0 48px; }
 .app-header { height: 88px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
-.wordmark { display: flex; align-items: center; font-size: 21px; letter-spacing: -.8px; font-weight: 720; }
-.wordmark > span:last-child { font-weight: 450; }
+.wordmark { display: flex; align-items: center; font-size: 21px; font-weight: 720; }
+.wordmark > span:nth-of-type(2) { font-weight: 450; }
+.wordmark-version { margin-left: 8px; color: #7c8490; font-size: 10px; line-height: 1; font-weight: 500; }
 .brand-mark { width: 30px; height: 30px; background: var(--accent); display: grid; place-items: center; color: white; border-radius: 9px; margin-right: 10px; }
 .header-right { display: flex; align-items: center; gap: 22px; }
 .product-tag { color: #767f8b; font-size: 10px; font-weight: 650; letter-spacing: 1.65px; }
@@ -74,6 +75,10 @@ h1 span { color: #4266cc; }
 .assurance i { display: block; width: 3px; height: 3px; border-radius: 50%; background: #c3c8d0; margin: 0 3px; }
 footer { border-top: 1px solid var(--border); height: 62px; display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: #838b98; }
 .footer-brand { display: flex; align-items: center; gap: 7px; }
+.update-button { border: 0; background: transparent; color: #667180; display: inline-flex; align-items: center; gap: 5px; font-size: 10px; padding: 8px 4px; }
+.update-button:hover:not(:disabled) { color: var(--accent); }
+.update-button:disabled { color: #929baa; }
+.update-error { color: #aa4e30; }
 .help-button, .text-button { border: 0; background: transparent; color: #6c7684; display: flex; align-items: center; gap: 6px; font-size: 10px; padding: 10px 0 10px 10px; }
 .help-button:hover, .text-button:hover { color: var(--accent); }
 .tool-menu, .account-menu { position: relative; }
@@ -145,3 +150,10 @@ summary:hover { background: #f1f3f6; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 .dialog-actions .setup-button { width: auto; padding: 0 18px; background: white; color: #667180; border-color: #dce1e9; }
 .dialog-actions .primary-button { margin: 0; }
+
+.recovery-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.recovery-actions .text-button, .account-warning .text-button { padding-left: 0; color: var(--accent); }
+.recovery-actions span { font-size: 10px; color: var(--muted); }
+.recovery-actions button:disabled { color: #929baa; }
+.account-warning { border: 1px solid #f1dfb8; background: #fffbf1; border-radius: 7px; padding: 10px 12px; margin-bottom: 12px; }
+.account-warning p { margin: 0; color: #825f26; font-size: 11px; line-height: 1.7; }

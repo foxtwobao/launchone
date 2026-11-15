@@ -1,6 +1,6 @@
 [package]
 name = "launchone"
-version = "0.2.2"
+version = "0.2.4"
 description = "TokenOne application setup assistant"
 edition = "2021"
 license = "MIT"
@@ -16,7 +16,13 @@ required-features = ["desktop"]
 
 [features]
 default = ["desktop"]
-desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-opener"]
+desktop = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-opener", "dep:tauri-plugin-updater"]
+
+updater-smoke = ["desktop", "tauri/test"]
+
+[[example]]
+name = "probe_updates"
+required-features = ["updater-smoke"]
 
 [build-dependencies]
 tauri-build = { version = "2", optional = true }
@@ -25,6 +31,7 @@ tauri-build = { version = "2", optional = true }
 async-trait = "0.1"
 tauri = { version = "2", optional = true }
 tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-updater = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 toml_edit = { version = "0.22", features = ["serde"] }
@@ -44,6 +51,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 
 [dev-dependencies]
 axum = "0.8"
+minisign-verify = "0.3"
 
 [profile.release]
 strip = true

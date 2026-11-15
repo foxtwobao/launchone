@@ -4,6 +4,7 @@ src-tauri/target/
 src-tauri/gen/
 .env
 .env.local
+.env.production
 server/.env
 server/.env.local
 private/

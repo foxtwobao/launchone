@@ -1,12 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createApp, readConfig } from "./app.mjs";
 
 async function fixture(t, changes = {}) {
   let time = Date.now();
   const config = { origin: "https://launchone.test", issuer: "https://idone.test", resellerOrigin: "https://reseller.test",
-    gatewayOrigin: "https://gateway.test", credential: "fixture-app-credential" };
+    gatewayOrigin: "https://gateway.test", credential: "fixture-app-credential",
+    updateManifestFile: changes.updateManifestFile, updateArtifactDirectory: changes.updateArtifactDirectory, downloadBaseUrl: changes.downloadBaseUrl };
   const state = { authorized: true, emailVerified: true, userIssuer: config.issuer, userSub: "fixture-sub", ...changes };
   const calls = [];
   const json = (value, status = 200) => Response.json(value, { status });
@@ -60,8 +64,34 @@ async function fixture(t, changes = {}) {
   });
   const start = () => request("/v1/credentials", { body: {} });
   const complete = (flow, query = `code=fixture-code&state=${state.authorization.state}`) => request(`/auth/reseller/callback?${query}`);
-  return { config, state, calls, request, start, complete, advance: ms => { time += ms; } };
+  return { config, state, calls, origin, request, start, complete, advance: ms => { time += ms; } };
 }
+
+test("serves the signed update manifest publicly and returns no update when none is configured", async t => {
+  const empty = await fixture(t);
+  const noUpdate = await fetch(`${empty.origin}/v1/updates/darwin/aarch64/0.2.3`);
+  assert.equal(noUpdate.status, 204);
+  assert.equal(noUpdate.headers.get("access-control-allow-origin"), null);
+
+  const directory = await mkdtemp(join(tmpdir(), "launchone-updates-"));
+  const manifestFile = join(directory, "latest.json");
+  const manifest = JSON.stringify({ version: "0.2.4", notes: "修复问题", platforms: {
+    "darwin-aarch64": { url: "https://updates.test/app.tar.gz", signature: "mac-signature" },
+    "windows-x86_64-nsis": { url: "https://updates.test/app-setup.exe", signature: "windows-signature" },
+  } });
+  await writeFile(manifestFile, manifest);
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const configured = await fixture(t, { updateManifestFile: manifestFile });
+  const response = await fetch(`${configured.origin}/v1/updates/darwin/aarch64/0.2.3`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "public, max-age=60");
+  assert.deepEqual(await response.json(), {
+    version: "0.2.4", notes: "修复问题", url: "https://updates.test/app.tar.gz", signature: "mac-signature",
+  });
+  const windows = await fetch(`${configured.origin}/v1/updates/windows/x86_64/0.2.3`);
+  assert.equal((await windows.json()).signature, "windows-signature");
+  assert.equal((await fetch(`${configured.origin}/v1/updates/linux/x86_64/0.2.3`)).status, 204);
+});
 
 test("returns an existing personal Key only to the authenticated native request", async t => {
   const f = await fixture(t);
@@ -191,7 +221,46 @@ test("service config keeps publisher credentials server-side and requires exact 
     RESELLER_ORIGIN: "https://reseller.test", RESELLER_GATEWAY_ORIGIN: "https://gateway.test",
     RESELLER_APP_CREDENTIAL: "fixture-app-credential", NODE_ENV: "production" };
   assert.equal(readConfig(env).port, 55400);
+  assert.equal(readConfig({ ...env, LAUNCHONE_UPDATE_MANIFEST_FILE: "" }).updateManifestFile, undefined);
+  assert.throws(() => readConfig({ ...env, LAUNCHONE_UPDATE_MANIFEST_FILE: "releases/latest.json" }));
   for (const origin of ["http://launchone.test", "https://user:secret@launchone.test", "https://launchone.test?query=x", "https://launchone.test/path"]) {
     assert.throws(() => readConfig({ ...env, LAUNCHONE_PUBLIC_ORIGIN: origin }));
   }
+});
+
+
+test("update downloads are public, support range requests and cannot escape the artifact directory", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "launchone-downloads-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await writeFile(join(directory, "app.tar.gz"), "signed-artifact-content");
+  await writeFile(join(directory, ".secret"), "hidden");
+  const f = await fixture(t, { updateArtifactDirectory: directory });
+  const response = await fetch(`${f.origin}/updates/files/app.tar.gz`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "public, max-age=3600, immutable");
+  assert.equal(await response.text(), "signed-artifact-content");
+  const range = await fetch(`${f.origin}/updates/files/app.tar.gz`, { headers: { Range: "bytes=0-5" } });
+  assert.equal(range.status, 206);
+  assert.equal(await range.text(), "signed");
+  for (const path of [".secret", "%2e%2e%2fapp.mjs", "missing.exe", ""]) {
+    assert.equal((await fetch(`${f.origin}/updates/files/${path}`)).status, 404);
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test("updater can move its local artifact path to the download origin without changing its signature", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "launchone-updater-origin-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const manifestFile = join(directory, "latest.json");
+  await writeFile(manifestFile, JSON.stringify({ version: "0.2.5", platforms: {
+    "darwin-aarch64": { url: "https://launchone.test/updates/files/0.2.5/LaunchOne.app.tar.gz", signature: "unchanged-signature" },
+  } }));
+  const f = await fixture(t, { updateManifestFile: manifestFile, downloadBaseUrl: "https://downloads.test" });
+  const response = await fetch(`${f.origin}/v1/updates/darwin/aarch64/0.2.4`);
+  assert.deepEqual(await response.json(), { version: "0.2.5", url: "https://downloads.test/updates/files/0.2.5/LaunchOne.app.tar.gz", signature: "unchanged-signature" });
+  await writeFile(manifestFile, JSON.stringify({ version: "0.2.5", platforms: {
+    "darwin-aarch64": { url: "https://separate.test/updates/files/0.2.5/LaunchOne.app.tar.gz", signature: "unchanged-signature" },
+  } }));
+  const external = await fetch(`${f.origin}/v1/updates/darwin/aarch64/0.2.4`);
+  assert.equal((await external.json()).url, "https://separate.test/updates/files/0.2.5/LaunchOne.app.tar.gz");
 });

@@ -1,6 +1,9 @@
 import express from "express";
 import { createHash, randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
+import { registerInstallers } from "./installers.mjs";
 
 const random = () => randomBytes(32).toString("base64url");
 const hash = value => createHash("sha256").update(value).digest("base64url");
@@ -28,6 +31,15 @@ export function serviceUrl(value, allowLoopback = false) {
   return url;
 }
 
+const optionalSetting = schema => z.preprocess(value => typeof value === "string" ? value.trim() || undefined : value, schema.optional());
+const publicText = max => z.string().min(1).max(max).refine(value => !/[\u0000-\u001f\u007f-\u009f]/.test(value));
+const publicUrl = rootOnly => z.string().max(2048).refine(value => {
+  try {
+    const url = serviceUrl(value);
+    return url.protocol === "https:" && !value.includes("?") && !value.includes("#") && (!rootOnly || url.pathname === "/");
+  } catch { return false; }
+});
+
 export function readConfig(env = process.env) {
   const values = z.object({
     LAUNCHONE_PUBLIC_ORIGIN: text,
@@ -35,17 +47,56 @@ export function readConfig(env = process.env) {
     RESELLER_ORIGIN: text,
     RESELLER_GATEWAY_ORIGIN: text,
     RESELLER_APP_CREDENTIAL: z.string().min(16),
+    LAUNCHONE_CLIENT_ID: optionalSetting(publicText(1024)),
+    LAUNCHONE_TOKENONE_URL: optionalSetting(publicUrl(true)),
+    LAUNCHONE_CODEX_MODEL: optionalSetting(publicText(256)),
+    LAUNCHONE_CLAUDE_MODEL: optionalSetting(publicText(256)),
+    LAUNCHONE_TOKENONE_PORTAL_URL: optionalSetting(publicUrl(false)),
+    LAUNCHONE_UPDATE_MANIFEST_FILE: z.preprocess(value => value === "" ? undefined : value, z.string().trim().min(1).optional()),
+    LAUNCHONE_UPDATE_ARTIFACT_DIRECTORY: z.preprocess(value => value === "" ? undefined : value, z.string().trim().min(1).optional()),
+    LAUNCHONE_DOWNLOAD_BASE_URL: z.string().trim().min(1).optional().or(z.literal("")),
+    LAUNCHONE_INSTALLER_DIRECTORY: z.string().trim().min(1).optional().or(z.literal("")),
     HOST: z.string().default("127.0.0.1"),
     PORT: z.coerce.number().int().min(1).max(65535).default(55400),
   }).safeParse(env);
   if (!values.success) throw new Error("LaunchOne service configuration is incomplete; see server/.env.example");
   const v = values.data;
+  const clientSettings = [v.LAUNCHONE_CLIENT_ID, v.LAUNCHONE_TOKENONE_URL, v.LAUNCHONE_CODEX_MODEL, v.LAUNCHONE_CLAUDE_MODEL];
+  const clientConfigured = clientSettings.some(Boolean) || Boolean(v.LAUNCHONE_TOKENONE_PORTAL_URL);
+  if (clientConfigured && clientSettings.some(value => !value)) {
+    throw new Error("Configure all LaunchOne public client settings together; see server/.env.example");
+  }
+  if (v.LAUNCHONE_UPDATE_MANIFEST_FILE && !isAbsolute(v.LAUNCHONE_UPDATE_MANIFEST_FILE)) {
+    throw new Error("Configure LAUNCHONE_UPDATE_MANIFEST_FILE as an absolute path");
+  }
+  if (v.LAUNCHONE_UPDATE_ARTIFACT_DIRECTORY && !isAbsolute(v.LAUNCHONE_UPDATE_ARTIFACT_DIRECTORY)) {
+    throw new Error("Configure LAUNCHONE_UPDATE_ARTIFACT_DIRECTORY as an absolute path");
+  }
+  if (v.LAUNCHONE_INSTALLER_DIRECTORY && !isAbsolute(v.LAUNCHONE_INSTALLER_DIRECTORY)) {
+    throw new Error("Configure LAUNCHONE_INSTALLER_DIRECTORY as an absolute path");
+  }
+  const downloadUrl = v.LAUNCHONE_DOWNLOAD_BASE_URL ? serviceUrl(v.LAUNCHONE_DOWNLOAD_BASE_URL) : undefined;
+  if (downloadUrl && downloadUrl.pathname !== "/") throw new Error("Configure download origin without paths");
+  if (v.LAUNCHONE_INSTALLER_DIRECTORY && !downloadUrl) {
+    throw new Error("Installer mirror requires both download origin and storage directory");
+  }
   const urls = [v.LAUNCHONE_PUBLIC_ORIGIN, v.IDONE_ISSUER, v.RESELLER_ORIGIN, v.RESELLER_GATEWAY_ORIGIN]
     .map(value => serviceUrl(value, env.NODE_ENV !== "production"));
   if (urls.some(url => url.pathname !== "/")) throw new Error("Configure service origins without paths");
   return Object.freeze({
     origin: urls[0].origin, issuer: v.IDONE_ISSUER, resellerOrigin: urls[2].origin,
     gatewayOrigin: urls[3].origin, credential: v.RESELLER_APP_CREDENTIAL, host: v.HOST, port: v.PORT,
+    downloadBaseUrl: downloadUrl?.origin, installerDirectory: v.LAUNCHONE_INSTALLER_DIRECTORY || undefined,
+    updateManifestFile: v.LAUNCHONE_UPDATE_MANIFEST_FILE,
+    updateArtifactDirectory: v.LAUNCHONE_UPDATE_ARTIFACT_DIRECTORY,
+    clientConfig: clientConfigured ? Object.freeze({
+      LAUNCHONE_IDONE_ISSUER: v.IDONE_ISSUER,
+      LAUNCHONE_CLIENT_ID: v.LAUNCHONE_CLIENT_ID,
+      LAUNCHONE_TOKENONE_URL: v.LAUNCHONE_TOKENONE_URL,
+      LAUNCHONE_CODEX_MODEL: v.LAUNCHONE_CODEX_MODEL,
+      LAUNCHONE_CLAUDE_MODEL: v.LAUNCHONE_CLAUDE_MODEL,
+      LAUNCHONE_TOKENONE_PORTAL_URL: v.LAUNCHONE_TOKENONE_PORTAL_URL || "",
+    }) : undefined,
   });
 }
 
@@ -146,7 +197,56 @@ export function createApp(config, { fetch: request = globalThis.fetch, now = Dat
     return publicFlow(flow);
   }
 
+  registerInstallers(app, config);
   app.get("/health", (_req, res) => res.json({ status: "ok" }));
+  app.get("/v1/client-config", (_req, res) => {
+    if (!config.clientConfig) throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true);
+    res.json(config.clientConfig);
+  });
+  if (config.updateArtifactDirectory) {
+    app.use("/updates/files", express.static(config.updateArtifactDirectory, {
+      dotfiles: "deny", index: false, redirect: false,
+      setHeaders: res => res.set("Cache-Control", "public, max-age=3600, immutable"),
+    }));
+  }
+  app.get("/v1/updates/:target/:arch/:currentVersion", async (req, res) => {
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(req.params.target)
+      || !/^[A-Za-z0-9._-]{1,64}$/.test(req.params.arch)
+      || !/^[A-Za-z0-9.+-]{1,64}$/.test(req.params.currentVersion)) {
+      throw new ServiceError(400, "INVALID_REQUEST");
+    }
+    if (!config.updateManifestFile) return res.status(204).end();
+    let manifest;
+    try { manifest = await readFile(config.updateManifestFile, "utf8"); }
+    catch (error) {
+      if (error?.code === "ENOENT") return res.status(204).end();
+      throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true);
+    }
+    let value;
+    try { value = JSON.parse(manifest); } catch { throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true); }
+    if (typeof value?.version !== "string" || !value.platforms || typeof value.platforms !== "object") {
+      throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true);
+    }
+    const platform = value.platforms[`${req.params.target}-${req.params.arch}`]
+      ?? (req.params.target === "windows" ? value.platforms[`${req.params.target}-${req.params.arch}-nsis`] : undefined);
+    if (!platform) return res.status(204).end();
+    if (typeof platform.url !== "string" || typeof platform.signature !== "string") {
+      throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true);
+    }
+    let artifactUrl;
+    try { artifactUrl = new URL(platform.url); } catch { throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true); }
+    if (artifactUrl.protocol !== "https:" || artifactUrl.username || artifactUrl.password) {
+      throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true);
+    }
+    // Only rewrite local update paths; preserve separately hosted/signed artifacts.
+    if (config.downloadBaseUrl && artifactUrl.origin === config.origin && artifactUrl.pathname.startsWith("/updates/files/")) {
+      artifactUrl = new URL(artifactUrl.pathname, config.downloadBaseUrl);
+    }
+    const update = { version: value.version, url: artifactUrl.href, signature: platform.signature };
+    if (typeof value.notes === "string") update.notes = value.notes;
+    if (typeof value.pub_date === "string") update.pub_date = value.pub_date;
+    res.set("Cache-Control", "public, max-age=60").json(update);
+  });
   app.use("/v1", async (req, _res, next) => {
     // Keys are for the native Rust client. No browser CORS or Cookie authentication.
     if (req.get("Origin")) throw new ServiceError(403, "BROWSER_ACCESS_FORBIDDEN");
