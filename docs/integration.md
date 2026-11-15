@@ -57,7 +57,7 @@ Content-Type: application/json
 | --- | --- |
 | `GET /v1/client-config` | 无需登录。返回服务端配置的登录地址、公开 Client ID、TokenOne 地址及默认模型、可选账号网页；不返回私钥或应用凭证 |
 | `POST /v1/credentials` | 空 JSON `{}`。已有授权返回 `{"status":"ready","key":"..."}`；否则返回 `status=authorization_required`、事务 id、浏览器 authorization_url、expires_in |
-| `GET /authorize/:id` | 浏览器进入入口，跳转固定 Reseller 网关；不交付 Key |
+| `GET /authorize/:id` | 浏览器进入入口，跳转已配置 Reseller 返回的 HTTPS 授权地址；不交付 Key |
 | `GET /auth/reseller/callback` | Reseller 精确 HTTPS 回调，认领 state、校验原登录仍有效并一次性兑换 |
 | `GET /v1/authorizations/:id` | 同一桌面登录 Bearer 查询；返回 pending 或本人 Key；其他登录会话不可读取 |
 | `GET /health` | 仅检查进程存活，不表示上游接入已通过 |
@@ -87,7 +87,7 @@ NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt npm run service
 
 客户端固定配置见根目录 `.env.example`，只有 LaunchOne 服务入口 `LAUNCHONE_SERVICE_URL` 和更新公钥 `LAUNCHONE_UPDATE_PUBLIC_KEY`，以及构建确定的应用身份和版本。更新私钥、密码和苹果签名材料只用于发布，不进入安装包；Windows 当前不做发布者签名。
 
-登录及模型配置使用服务端环境变量：`LAUNCHONE_CLIENT_ID`、`LAUNCHONE_TOKENONE_URL`、`LAUNCHONE_CODEX_MODEL`、`LAUNCHONE_CLAUDE_MODEL`，以及可选的 `LAUNCHONE_TOKENONE_PORTAL_URL`；IDONE 登录地址复用服务端已有的 `IDONE_ISSUER`。配置格式见 [`server/.env.example`](../server/.env.example)。用 Docker 部署就放进现有服务容器的环境变量，修改后用 `docker compose up -d` 重新创建容器；只 `docker restart` 不会读入新环境变量。现有 Node／systemd 部署则修改 `server/.env` 后重启服务。两种方式都不需要重新打客户端安装包。
+登录及模型配置使用服务端环境变量：`LAUNCHONE_CLIENT_ID`、`LAUNCHONE_TOKENONE_URL`、`LAUNCHONE_CODEX_MODEL`、`LAUNCHONE_CLAUDE_MODEL`；IDONE 登录地址复用服务端已有的 `IDONE_ISSUER`。“前往 TokenOne”默认打开模型调用根地址，账号网页另有域名时才需要额外配置 `LAUNCHONE_TOKENONE_PORTAL_URL`。授权网页地址由已配置的 Reseller 返回，不需要另填 gateway。配置格式见 [`server/.env.example`](../server/.env.example)。用 Docker 部署就放进现有服务容器的环境变量，修改后用 `docker compose up -d` 重新创建容器；只 `docker restart` 不会读入新环境变量。现有 Node／systemd 部署则修改 `server/.env` 后重启服务。两种方式都不需要重新打客户端安装包。
 
 `LAUNCHONE_SERVICE_URL` 填本仓库 `server/` 服务的域名，用来下发配置、授权和领取个人 Key、查询安装包和应用更新。服务端的 `LAUNCHONE_TOKENONE_URL` 填 TokenOne 根地址，例如 `https://tokenone.example.com`；模型请求直连它，Codex 和 Claude 共用，各自需要的接口路径由程序内部补齐。
 

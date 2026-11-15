@@ -38,7 +38,8 @@
 | `LAUNCHONE_TOKENONE_URL` | TokenOne 模型调用域名，例如 `https://tokenone.example.com` | 你的 TokenOne 服务域名。Codex 和 Claude 共用，只填 HTTPS 根地址，接口路径由程序自动补齐 |
 | `LAUNCHONE_CODEX_MODEL` | Codex 默认模型 ID | TokenOne 后台模型配置中的**请求模型名称**，且 LaunchOne 对应分组有权限调用 |
 | `LAUNCHONE_CLAUDE_MODEL` | Claude 默认模型 ID | 同样从 TokenOne 后台复制可用的请求模型名称 |
-| `LAUNCHONE_TOKENONE_PORTAL_URL` | 可选：账号、额度和充值网页地址 | TokenOne 用户网站地址。留空就不显示“前往 TokenOne”按钮 |
+
+“前往 TokenOne”默认打开上表中的 `LAUNCHONE_TOKENONE_URL`，不用再填一遍。只有账号网页与模型入口域名不同时，才额外设置 `LAUNCHONE_TOKENONE_PORTAL_URL`；用 Komodo 时，还需在 Compose 的 `environment` 中加入 `LAUNCHONE_TOKENONE_PORTAL_URL: "${LAUNCHONE_TOKENONE_PORTAL_URL}"`。授权网页地址由 Reseller 自动返回，不需要单独配置 gateway。
 
 IDONE 登录地址继续使用服务已有的 **`IDONE_ISSUER`**。它的值来自正式 IDONE 域名，与该站点 `/.well-known/openid-configuration` 返回的 `issuer` 完全一致，包括末尾有没有 `/`。服务端配置格式见 [`server/.env.example`](../server/.env.example)，Node／systemd 部署时直接填 `server/.env`，沿用[现有服务部署方式](integration.md#lab-准备和运行)。
 

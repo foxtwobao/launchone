@@ -8,7 +8,6 @@ const serviceEnv = {
   LAUNCHONE_PUBLIC_ORIGIN: "https://launchone.test",
   IDONE_ISSUER: "https://idone.test/",
   RESELLER_ORIGIN: "https://reseller.test",
-  RESELLER_GATEWAY_ORIGIN: "https://gateway.test",
   RESELLER_APP_CREDENTIAL: "fixture-server-credential-do-not-expose",
 };
 const clientEnv = {
@@ -100,10 +99,21 @@ test("public env settings must be complete, with bounded text and HTTPS model ro
   }
 });
 
-test("public settings trim whitespace, preserve the exact issuer and allow an omitted portal", () => {
+test("public settings trim whitespace, preserve the exact issuer and default the portal to TokenOne", () => {
   const env = { ...serviceEnv, ...Object.fromEntries(Object.entries(clientEnv).map(([key, value]) => [key, ` ${value} `])) };
   const config = readConfig({ ...env, LAUNCHONE_TOKENONE_PORTAL_URL: " " });
-  assert.deepEqual(config.clientConfig, { LAUNCHONE_IDONE_ISSUER: serviceEnv.IDONE_ISSUER, ...clientEnv, LAUNCHONE_TOKENONE_PORTAL_URL: "" });
+  assert.deepEqual(config.clientConfig, { LAUNCHONE_IDONE_ISSUER: serviceEnv.IDONE_ISSUER, ...clientEnv, LAUNCHONE_TOKENONE_PORTAL_URL: clientEnv.LAUNCHONE_TOKENONE_URL });
   assert.equal(readConfig(serviceEnv).clientConfig, undefined);
   assert.equal(readConfig({ ...serviceEnv, ...Object.fromEntries(Object.keys(clientEnv).map(key => [key, " "])) }).clientConfig, undefined);
+});
+
+test("the default account portal follows the current TokenOne root without a separate setting", async t => {
+  const env = { ...clientEnv };
+  delete env.LAUNCHONE_TOKENONE_PORTAL_URL;
+  for (const root of [clientEnv.LAUNCHONE_TOKENONE_URL, "https://new-tokenone.test/"]) {
+    const origin = await fixture(t, { ...env, LAUNCHONE_TOKENONE_URL: root });
+    const response = await fetch(`${origin}/v1/client-config`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).LAUNCHONE_TOKENONE_PORTAL_URL, root);
+  }
 });
