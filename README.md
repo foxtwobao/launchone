@@ -28,9 +28,9 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 配置测试必须使用 `Context::isolated` 和临时目录，不能访问宿主机 CLI 配置、`CODEX_HOME`、`CLAUDE_CONFIG_DIR` 或系统钥匙串。
 
-打包时，在 GitHub **Actions → Desktop packages → Run workflow** 选择测试版或正式版，以及 macOS、Windows 或两端。macOS 同一个安装包支持 Intel 和 M 系列，Windows 目前为 x64。第一次需要填写的配置、每项从哪里拿、填到哪里，以及后续更新发布步骤，见 [打包操作说明](docs/build-and-updates.md)。苹果和 Windows 签名材料沿用 Botone。
+打包时，在 GitHub **Actions → Desktop packages → Run workflow** 选择测试版或正式版，以及 macOS、Windows 或两端。macOS 同一个安装包支持 Intel 和 M 系列，Windows 目前为 x64。第一次需要填写的配置、每项从哪里拿、填到哪里，以及后续更新发布步骤，见 [打包操作说明](docs/build-and-updates.md)。苹果签名材料沿用 Botone；Windows 暂不做发布者签名，无需 Azure 配置，应用内更新签名仍保留。
 
-服务端镜像也通过 **Actions → Publish Docker image → Run workflow** 手动发布，镜像名为 `docker.io/<DOCKERHUB_USERNAME>/launchone`。直接使用仓库已有的 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` Secrets，支持 Linux x64／ARM64。登录和模型等配置在运行容器时传入，发布镜像不会自动替换现有服务；分支标签规则和运行命令见 [Docker 镜像发布说明](docs/build-and-updates.md#发布服务端-docker-镜像)。
+服务端镜像在推送或合并到 `main` 后自动发布，也可通过 **Actions → Publish Docker image → Run workflow** 手动运行，镜像名为 `docker.io/<DOCKERHUB_USERNAME>/launchone`。直接使用仓库已有的 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` Secrets，支持 Linux x64／ARM64。登录和模型等配置在运行容器时传入，发布镜像不会自动替换现有服务；分支标签规则和运行命令见 [Docker 镜像发布说明](docs/build-and-updates.md#发布服务端-docker-镜像)。
 
 未安装应用通过匿名镜像清单自动选择系统和原生芯片，下载支持中断续传，校验完整性和官方签名后安装；镜像尚未部署或对应组合尚未验证时提示不可用。Windows 完整包仍需发布者和依赖验收，不能把下载或安装器启动当作安装成功。
 

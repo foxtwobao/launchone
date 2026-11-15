@@ -85,7 +85,7 @@ NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt npm run service
 
 服务默认监听 `127.0.0.1:55400`；本次 lab 显式使用空闲的 `127.0.0.1:55410`，通过 HTTPS 反向代理访问，systemd 单元见 `deploy/launchone-lab.service`。代理、APM 不采集认证路径的 query/body/header；不启用认证 URL 的访问日志。服务重启会使进行中的授权失效，不影响 Reseller 已保存的授权。
 
-客户端固定配置见根目录 `.env.example`，只有 LaunchOne 服务入口 `LAUNCHONE_SERVICE_URL` 和更新公钥 `LAUNCHONE_UPDATE_PUBLIC_KEY`，以及构建确定的应用身份和版本。签名私钥、密码和苹果／Windows 签名材料只用于发布，不进入安装包。
+客户端固定配置见根目录 `.env.example`，只有 LaunchOne 服务入口 `LAUNCHONE_SERVICE_URL` 和更新公钥 `LAUNCHONE_UPDATE_PUBLIC_KEY`，以及构建确定的应用身份和版本。更新私钥、密码和苹果签名材料只用于发布，不进入安装包；Windows 当前不做发布者签名。
 
 登录及模型配置使用服务端环境变量：`LAUNCHONE_CLIENT_ID`、`LAUNCHONE_TOKENONE_URL`、`LAUNCHONE_CODEX_MODEL`、`LAUNCHONE_CLAUDE_MODEL`，以及可选的 `LAUNCHONE_TOKENONE_PORTAL_URL`；IDONE 登录地址复用服务端已有的 `IDONE_ISSUER`。配置格式见 [`server/.env.example`](../server/.env.example)。用 Docker 部署就放进现有服务容器的环境变量，修改后用 `docker compose up -d` 重新创建容器；只 `docker restart` 不会读入新环境变量。现有 Node／systemd 部署则修改 `server/.env` 后重启服务。两种方式都不需要重新打客户端安装包。
 
