@@ -65,3 +65,16 @@ Windows、macOS 的实际目标应用界面、模型请求及重启生效仍待�
 实际 Tauri updater 从 lab 的 HTTPS 接口验证 Apple Silicon、Intel、Windows x64 更新包下载及签名，验证签名版本不匹配和包内容被修改时拒绝，当前版本和更高版本不更新。测试没有安装或重启目标系统应用；macOS/Windows 实际替换安装及重启仍需真机验收。旧 0.2.3 需手动安装带更新功能的新包一次。
 
 当前 lab 更新清单为 0.2.4，包含 `darwin-aarch64`、`darwin-x86_64`、`windows-x86_64-nsis` 三个入口；完整下载和公开 HTTP Range 断点续传已验证。构建环境的修复提交为 `3a7366a`，后续提交只补充发布验证工具和文档。
+
+## 云端客户端配置部署（2026-11-15）
+
+已在 Lab 服务的 `.env` 补齐公开 Client ID、TokenOne 根地址、Codex 默认模型、Claude 默认模型及账号网页五项配置，并重启当前 `launchone-lab.service`。服务仍通过现有 Node／systemd 部署，本次没有迁移到 Docker。
+
+实际 HTTPS 检查结果：
+
+- `GET /v1/client-config` 返回 200，公开配置包含六个字段：服务已有的 IDONE issuer，以及上述五项设置；不返回应用凭证或个人 Key。
+- IDONE Discovery 仍声明设备登录及刷新授权；`GET /health` 返回 200，未登录请求凭据接口返回 401。
+- Apple Silicon、Intel、Windows x64 三个更新清单仍返回 0.2.4；更新文件的 32 字节 Range 请求返回 206，既有更新下载入口保持可用。
+- GitHub 的 Lab 更新签名 Secret 已同步现有且验证与公钥配对的私钥；该私钥未设置密码。
+
+官方客户端安装包镜像仍未部署，对应清单返回 503；Codex Windows 组合返回 404。本次验证的是配置下发、鉴权入口和既有更新服务，不代表 macOS／Windows 原应用中的模型任务、安装替换及重启已经完成真机验收。

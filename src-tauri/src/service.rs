@@ -2,7 +2,7 @@ use crate::adapters::{ensure_supported, AppAdapter, Context, Registry};
 use crate::auth::Auth;
 use crate::config::ConfigStore;
 use crate::desktop_app;
-use crate::error::{message, Result};
+use crate::error::{actionable, message, RecoveryAction, Result};
 use crate::models::{AppStatus, Credential, DefaultFailure, Mode, OpenOutcome, Progress, Snapshot};
 use crate::preferences::Preferences;
 use crate::settings::{http_client, Settings};
@@ -18,6 +18,7 @@ pub struct Runtime {
     context: Context,
     store: ConfigStore,
     preferences: Preferences,
+    installer_cache: PathBuf,
 }
 impl Runtime {
     pub fn new(home: PathBuf, data: PathBuf, settings: Settings) -> Self {
@@ -29,9 +30,11 @@ impl Runtime {
             context: Context::new(home),
             store: ConfigStore::new(data.join("backups")),
             preferences: Preferences::new(data.join("preferences.json")),
+            installer_cache: data.join("installers"),
         }
     }
     pub async fn snapshot(&self) -> Snapshot {
+        let account = self.auth.account().await;
         let recovery_error = if let Ok(_operation) = self.operation.try_lock() {
             self.store.recover().err().map(|e| e.to_string())
         } else {
@@ -49,6 +52,21 @@ impl Runtime {
                 .get(adapter.manifest().id)
                 .map(|(url, _)| url.as_str());
             let mode = adapter.current_mode(&self.context, endpoint);
+            let credential_account =
+                if mode.as_ref().ok().copied().flatten() == Some(Mode::Tokenone) {
+                    account
+                        .as_ref()
+                        .map(|account| {
+                            self.preferences.credential_account(
+                                adapter.manifest().id,
+                                self.settings.issuer.as_deref().unwrap_or_default(),
+                                &account.id,
+                            )
+                        })
+                        .transpose()
+                } else {
+                    Ok(None)
+                };
             let restart = self.preferences.needs_restart(adapter.manifest().id);
             let backup = adapter
                 .targets(&self.context)
@@ -61,20 +79,23 @@ impl Runtime {
                 restart_required: restart.as_ref().is_ok_and(|v| *v),
                 version: installed.and_then(|a| a.version),
                 mode: mode.as_ref().ok().copied().flatten(),
+                credential_account: credential_account.as_ref().ok().copied().flatten(),
                 can_restore: backup,
                 supported: ensure_supported(adapter).is_ok(),
                 error: recovery_error
                     .clone()
                     .or(detection_error)
+                    .or_else(|| credential_account.err().map(|e| e.to_string()))
                     .or_else(|| restart.err().map(|e| e.to_string()))
                     .or_else(|| mode.err().map(|e| e.to_string())),
             });
         }
         Snapshot {
             apps,
-            account: self.auth.account().await,
+            account,
             login_ready: self.settings.login_ready(),
             tokenone_ready: self.settings.tokenone_ready(),
+            tokenone_portal_ready: self.settings.tokenone_portal_url().is_ok(),
             desktop: true,
         }
     }
@@ -99,6 +120,12 @@ impl Runtime {
             {
                 continue;
             }
+            let endpoint = self.settings.endpoints.get(id).map(|(url, _)| url.as_str());
+            if adapter.current_mode(&self.context, endpoint)? == Some(Mode::Tokenone) {
+                // A pre-existing key may belong to someone else. Only an explicit
+                // reconnect can replace it and associate it with the current user.
+                continue;
+            }
             // Only already-installed applications are prepared. Login never installs
             // unrelated apps or overwrites a remembered subscription/restored choice.
             if !desktop_app::detect(adapter.desktop().unwrap(), &self.context.home)
@@ -112,6 +139,7 @@ impl Runtime {
                 failures.push(DefaultFailure {
                     app_id: id.into(),
                     message: error.to_string(),
+                    action: error.recovery_action(),
                 });
                 if cancelled {
                     break;
@@ -165,7 +193,7 @@ impl Runtime {
     pub async fn install(
         &self,
         app: &str,
-        open_browser: impl FnOnce(&str) -> Result<()>,
+        _open_browser: impl FnOnce(&str) -> Result<()>,
         emit: impl Fn(Progress),
     ) -> Result<bool> {
         let _operation = self
@@ -183,20 +211,47 @@ impl Runtime {
         {
             return Ok(true);
         }
-        emit(Progress {
-            app_id: app.into(),
-            stage: "installing",
-            message: "正在通过官方渠道安装".into(),
-        });
-        if cfg!(target_os = "macos") {
-            desktop_app::install_mac(spec, &self.context.home).await?;
-            Ok(true)
+        let progress = |stage, text: String| {
+            emit(Progress {
+                app_id: app.into(),
+                stage,
+                message: text,
+            })
+        };
+        progress("detecting", "正在选择适合当前系统和芯片的安装包".into());
+        let target = crate::installers::native_target().await?;
+        let downloaded = crate::installers::download(
+            &self.settings,
+            app,
+            &self.installer_cache,
+            &target,
+            &progress,
+        )
+        .await?;
+        progress("installing", "正在验证官方签名并安装".into());
+        if target.platform == "macos" {
+            desktop_app::install_mac(
+                spec,
+                &self.context.home,
+                &downloaded.path,
+                &downloaded.manifest,
+                &target,
+            )
+            .await?;
         } else {
-            // Native Store/installer consent remains with Windows. A webpage is
-            // never reported as a completed installation; refocus triggers detection.
-            open_browser(desktop_app::download_url(spec))?;
-            Ok(false)
+            crate::installers::install_windows(spec, &downloaded, &target).await?;
         }
+        let installed = desktop_app::detect(spec, &self.context.home)
+            .await?
+            .is_some();
+        if !installed {
+            return Err(actionable(
+                "安装尚未完成。若系统要求重启，请重启后重新检测",
+                RecoveryAction::Retry,
+            ));
+        }
+        downloaded.cleanup();
+        Ok(true)
     }
 
     pub async fn enable(
@@ -235,8 +290,13 @@ impl Runtime {
             .auth
             .credential(app, open_browser, |text| progress("authorization", text))
             .await?;
+        let account =
+            self.auth.account().await.ok_or_else(|| {
+                actionable("请先登录 IDONE，再连接 TokenOne", RecoveryAction::Login)
+            })?;
         progress("configuring", "正在备份并保存接入配置");
         self.store.recover()?;
+        let preference_checkpoint = self.preferences.checkpoint()?;
         let batch = self.store.begin(
             app,
             adapter
@@ -244,15 +304,25 @@ impl Runtime {
                 .await?,
         )?;
         progress("verifying", "正在验证连接");
-        if let Err(e) = self
-            .verify(adapter, &c)
-            .await
-            .and_then(|_| self.preferences.remember(app, Some(Mode::Tokenone)))
-        {
+        if let Err(e) = self.verify(adapter, &c).await.and_then(|_| {
+            self.preferences.remember_tokenone(
+                app,
+                self.settings.issuer.as_deref().unwrap_or_default(),
+                &account.id,
+            )
+        }) {
             self.store.revert(batch)?;
-            return Err(message(format!("{e}；已撤销本次配置修改")));
+            let text = format!("{e}；已撤销本次配置修改");
+            return Err(match e.recovery_action() {
+                Some(action) => actionable(text, action),
+                None => message(text),
+            });
         }
-        self.store.commit(batch)?;
+        if let Err(e) = self.store.commit(batch) {
+            self.store.recover()?;
+            self.preferences.rollback(preference_checkpoint)?;
+            return Err(e);
+        }
         progress("done", "已切换到 TokenOne，请重新打开应用");
         Ok(())
     }
@@ -274,6 +344,7 @@ impl Runtime {
             message: "正在切回官方订阅".into(),
         });
         self.store.recover()?;
+        let preference_checkpoint = self.preferences.checkpoint()?;
         let batch = self.store.begin(
             app,
             adapter.changes(&self.context, Mode::Official, None).await?,
@@ -288,7 +359,11 @@ impl Runtime {
             self.store.revert(batch)?;
             return Err(e);
         }
-        self.store.commit(batch)?;
+        if let Err(e) = self.store.commit(batch) {
+            self.store.recover()?;
+            self.preferences.rollback(preference_checkpoint)?;
+            return Err(e);
+        }
         Ok(())
     }
 
@@ -302,12 +377,18 @@ impl Runtime {
         let changes = self
             .store
             .restore_changes(adapter.targets(&self.context)?)?;
+        let preference_checkpoint = self.preferences.checkpoint()?;
         let batch = self.store.begin_restore(app, changes)?;
         if let Err(e) = self.preferences.remember(app, None) {
             self.store.revert(batch)?;
             return Err(e);
         }
-        self.store.finish_restore(batch)
+        if let Err(e) = self.store.finish_restore(batch) {
+            self.store.recover()?;
+            self.preferences.rollback(preference_checkpoint)?;
+            return Err(e);
+        }
+        Ok(())
     }
 
     async fn verify(&self, adapter: &dyn AppAdapter, c: &Credential) -> Result<()> {
@@ -319,15 +400,29 @@ impl Runtime {
         for (header, value) in adapter.request_headers(&c.key) {
             request = request.header(header, value);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|_| message("无法连接 TokenOne，请检查网络"))?;
+        let response = request.send().await.map_err(|_| {
+            actionable("无法连接 TokenOne，请检查网络后重试", RecoveryAction::Retry)
+        })?;
         match response.status().as_u16() {
             200..=299 => {}
-            401 | 403 => return Err(message("TokenOne 调用权限不足，请重新登录或检查账户")),
-            429 => return Err(message("TokenOne 额度不足或请求受限，请稍后重试")),
-            _ => return Err(message("TokenOne 暂时无法处理请求，请稍后重试")),
+            401 | 403 => {
+                return Err(actionable(
+                    "TokenOne 调用权限不足，请检查账户或重新连接",
+                    RecoveryAction::Portal,
+                ))
+            }
+            429 => {
+                return Err(actionable(
+                    "TokenOne 请求受限，请稍后重试；若持续失败请检查账户额度",
+                    RecoveryAction::Retry,
+                ))
+            }
+            _ => {
+                return Err(actionable(
+                    "TokenOne 暂时无法处理请求，请稍后重试",
+                    RecoveryAction::Retry,
+                ))
+            }
         }
         let value: Value = response
             .json()

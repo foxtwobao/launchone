@@ -18,7 +18,7 @@ lab `https://idone.lab.home.arpa/.well-known/openid-configuration` 已声明：
 - `token_endpoint`：`/api/login/oauth/access_token`
 - Grant：`urn:ietf:params:oauth:grant-type:device_code`
 
-LaunchOne 从固定 issuer 的 Discovery 读取端点，核对 issuer 和同源地址；只发送 public `client_id`，不内置 client secret，不监听本地回调端口。登录请求 scope 为 `openid profile email offline_access`。处理等待、减速、拒绝、过期和取消，Token 存入系统凭据存储，通过 UserInfo 校验 `iss/sub`。HTTP 使用系统可信根证书，不跳过 TLS 校验。
+LaunchOne 启动时从自己的服务取得登录 issuer 和 public `client_id`，再从该 issuer 的 Discovery 读取端点，核对 issuer 和同源地址。不内置 client secret，不监听本地回调端口。登录请求 scope 为 `openid profile email offline_access`。处理等待、减速、拒绝、过期和取消，Token 存入系统凭据存储，通过 UserInfo 校验 `iss/sub`。HTTP 使用系统可信根证书，不跳过 TLS 校验。
 
 IDONE 的 `verification_uri` 已包含用户码；直接打开该地址。当前返回对象没有 `verification_uri_complete`，不能假定另有标准手工输码页面。
 
@@ -51,10 +51,11 @@ Content-Type: application/json
 
 `server/app.mjs` 是一个 Node.js/Express 进程，无用户数据库、管理后台或模型代理。通过固定 issuer 的 Discovery 和 UserInfo 验证用户原 access token，由响应确定身份，不接受调用方指定 issuer/subject。邮箱注册策略由 IDONE 负责，LaunchOne 不重复增加邮箱验证规则；模型权限仍由 Reseller/TokenOne 的实际授权决定。
 
-桌面只向这个服务发送本人 IDONE Bearer：
+客户端配置接口公开读取，其余鉴权接口使用本人 IDONE Bearer：
 
 | 接口 | 请求与结果 |
 | --- | --- |
+| `GET /v1/client-config` | 无需登录。返回服务端配置的登录地址、公开 Client ID、TokenOne 地址及默认模型、可选账号网页；不返回私钥或应用凭证 |
 | `POST /v1/credentials` | 空 JSON `{}`。已有授权返回 `{"status":"ready","key":"..."}`；否则返回 `status=authorization_required`、事务 id、浏览器 authorization_url、expires_in |
 | `GET /authorize/:id` | 浏览器进入入口，跳转固定 Reseller 网关；不交付 Key |
 | `GET /auth/reseller/callback` | Reseller 精确 HTTPS 回调，认领 state、校验原登录仍有效并一次性兑换 |
@@ -84,7 +85,13 @@ NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt npm run service
 
 服务默认监听 `127.0.0.1:55400`；本次 lab 显式使用空闲的 `127.0.0.1:55410`，通过 HTTPS 反向代理访问，systemd 单元见 `deploy/launchone-lab.service`。代理、APM 不采集认证路径的 query/body/header；不启用认证 URL 的访问日志。服务重启会使进行中的授权失效，不影响 Reseller 已保存的授权。
 
-桌面发布方配置见根目录 `.env.example`，只包含 issuer、public client id、接入服务地址、工具 Base URL 和模型，不包含服务端凭证。Codex Base URL 含 `/v1`，Claude Code 不含 `/v1`，避免重复拼接。
+客户端固定配置见根目录 `.env.example`，只有 LaunchOne 服务入口 `LAUNCHONE_SERVICE_URL` 和更新公钥 `LAUNCHONE_UPDATE_PUBLIC_KEY`，以及构建确定的应用身份和版本。签名私钥、密码和苹果／Windows 签名材料只用于发布，不进入安装包。
+
+登录及模型配置使用服务端环境变量：`LAUNCHONE_CLIENT_ID`、`LAUNCHONE_TOKENONE_URL`、`LAUNCHONE_CODEX_MODEL`、`LAUNCHONE_CLAUDE_MODEL`，以及可选的 `LAUNCHONE_TOKENONE_PORTAL_URL`；IDONE 登录地址复用服务端已有的 `IDONE_ISSUER`。配置格式见 [`server/.env.example`](../server/.env.example)。用 Docker 部署就放进现有服务容器的环境变量，修改后用 `docker compose up -d` 重新创建容器；只 `docker restart` 不会读入新环境变量。现有 Node／systemd 部署则修改 `server/.env` 后重启服务。两种方式都不需要重新打客户端安装包。
+
+`LAUNCHONE_SERVICE_URL` 填本仓库 `server/` 服务的域名，用来下发配置、授权和领取个人 Key、查询安装包和应用更新。服务端的 `LAUNCHONE_TOKENONE_URL` 填 TokenOne 根地址，例如 `https://tokenone.example.com`；模型请求直连它，Codex 和 Claude 共用，各自需要的接口路径由程序内部补齐。
+
+客户端每次启动先取最新有效配置，再加载与该登录服务绑定的本机登录。网络失败时回退按测试／正式环境和 LaunchOne 服务地址隔离的缓存；无缓存也能打开和安装应用、使用官方模式及检查更新，登录和连接 TokenOne 暂不可用。修改模型、TokenOne 地址和账号网页不影响登录；issuer 或 Client ID 改变后需要重新登录。默认模型用于下次连接或重新连接，启动拉取配置不会直接改写已接入应用，也不向已打开的窗口即时推送变更。
 
 默认模型需按 LaunchOne 的实际分组确定，不能从 CreativeOne 的创作模型配置推断；需验证 Codex Responses 与 Claude Messages 的流式响应、工具调用及多轮任务。
 

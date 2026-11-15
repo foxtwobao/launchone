@@ -1,3 +1,4 @@
+use crate::error::RecoveryAction;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -13,6 +14,14 @@ pub enum OpenOutcome {
     Opened,
     AlreadyRunning,
     RestartRequired,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialAccount {
+    Current,
+    Other,
+    Unknown,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -36,6 +45,7 @@ pub struct AppStatus {
     pub restart_required: bool,
     pub version: Option<String>,
     pub mode: Option<Mode>,
+    pub credential_account: Option<CredentialAccount>,
     pub can_restore: bool,
     pub supported: bool,
     pub error: Option<String>,
@@ -56,6 +66,7 @@ pub struct Snapshot {
     pub account: Option<Account>,
     pub login_ready: bool,
     pub tokenone_ready: bool,
+    pub tokenone_portal_ready: bool,
     pub desktop: bool,
 }
 
@@ -64,6 +75,8 @@ pub struct Snapshot {
 pub struct DefaultFailure {
     pub app_id: String,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<RecoveryAction>,
 }
 
 #[derive(Clone, Debug, Serialize)]

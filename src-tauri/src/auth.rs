@@ -1,4 +1,4 @@
-use crate::error::{message, Result};
+use crate::error::{actionable, message, RecoveryAction, Result};
 use crate::models::{Account, Credential};
 use crate::settings::{http_client, validate_service_url, Settings};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -94,7 +94,7 @@ impl Auth {
 
     // Tests never read or write the host's system credential store.
     #[cfg(test)]
-    fn isolated(settings: Settings) -> Self {
+    pub(crate) fn isolated(settings: Settings) -> Self {
         Self {
             settings,
             session: Mutex::new(None),
@@ -332,12 +332,12 @@ impl Auth {
             .lock()
             .await
             .clone()
-            .ok_or_else(|| message("请先登录 IDONE"))?;
+            .ok_or_else(|| actionable("请先登录 IDONE", RecoveryAction::Login))?;
         if session.expires_at <= now() + 30 {
             let refresh = session
                 .refresh_token
                 .as_ref()
-                .ok_or_else(|| message("登录已过期，请重新登录 IDONE"))?;
+                .ok_or_else(|| actionable("登录已过期，请重新登录 IDONE", RecoveryAction::Login))?;
             let discovery = self.discovery(client).await?;
             let response = client
                 .post(&discovery.token_endpoint)
@@ -351,9 +351,16 @@ impl Auth {
                 ])
                 .send()
                 .await
-                .map_err(|_| message("无法刷新 IDONE 登录，请重试"))?
-                .error_for_status()
-                .map_err(|_| message("登录已过期，请重新登录 IDONE"))?;
+                .map_err(|_| actionable("无法刷新 IDONE 登录，请重试", RecoveryAction::Retry))?;
+            if !response.status().is_success() {
+                return Err(
+                    if response.status().is_client_error() && response.status().as_u16() != 429 {
+                        actionable("登录已过期，请重新登录 IDONE", RecoveryAction::Login)
+                    } else {
+                        actionable("暂时无法刷新 IDONE 登录，请重试", RecoveryAction::Retry)
+                    },
+                );
+            }
             let token = valid_token(
                 response
                     .json()
@@ -419,7 +426,7 @@ impl Auth {
                 )
                 .await?;
                 if Instant::now() >= deadline {
-                    return Err(message("模型授权已过期，请重试"));
+                    return Err(actionable("模型授权已过期，请重试", RecoveryAction::Retry));
                 }
                 let response = client
                     .get(format!(
@@ -476,20 +483,39 @@ async fn read_key_response(response: reqwest::Response) -> Result<KeyResponse> {
         .await
         .map_err(|_| message("TokenOne 接入服务响应无效"))?;
     if !status.is_success() {
-        let text = match value.get("error").and_then(Value::as_str) {
-            Some("UNAUTHORIZED") => "登录已过期，请重新登录 IDONE",
-            Some("TOKENONE_USER_NOT_FOUND") => "请先在 TokenOne 完成开户，再重试",
-            Some("TOKENONE_USER_DISABLED") => "TokenOne 账户已停用，请联系服务方",
-            Some("TOKENONE_GROUP_FORBIDDEN") => "账户尚无此模型服务的使用权限，请联系服务方",
-            Some("TOKENONE_KEY_QUOTA_EXHAUSTED") => "TokenOne 调用 Key 的额度已用完，请检查账户",
-            Some("APP_KEY_UNAVAILABLE") => "TokenOne 调用 Key 已停用或过期，请检查账户",
-            Some("IDENTITY_BINDING_CONFLICT") => "模型账户与登录身份不一致，请联系服务方",
-            Some("AUTHORIZATION_FLOW_INVALID" | "AUTHORIZATION_RETRY_REQUIRED") => {
-                "模型授权未完成或已过期，请重试"
+        let (text, action) = match value.get("error").and_then(Value::as_str) {
+            Some("UNAUTHORIZED") => ("登录已过期，请重新登录 IDONE", RecoveryAction::Login),
+            Some("TOKENONE_USER_NOT_FOUND") => {
+                ("请先在 TokenOne 完成开户，再重试", RecoveryAction::Portal)
             }
-            _ => "模型服务暂时不可用，请稍后重试；如持续失败，请联系服务方",
+            Some("TOKENONE_USER_DISABLED") => {
+                ("TokenOne 账户已停用，请联系服务方", RecoveryAction::Portal)
+            }
+            Some("TOKENONE_GROUP_FORBIDDEN") => (
+                "账户尚无此模型服务的使用权限，请联系服务方",
+                RecoveryAction::Portal,
+            ),
+            Some("TOKENONE_KEY_QUOTA_EXHAUSTED") => (
+                "TokenOne 调用 Key 的额度已用完，请检查账户",
+                RecoveryAction::Portal,
+            ),
+            Some("APP_KEY_UNAVAILABLE") => (
+                "TokenOne 调用 Key 已停用或过期，请检查账户",
+                RecoveryAction::Portal,
+            ),
+            Some("IDENTITY_BINDING_CONFLICT") => (
+                "模型账户与登录身份不一致，请联系服务方",
+                RecoveryAction::Portal,
+            ),
+            Some("AUTHORIZATION_FLOW_INVALID" | "AUTHORIZATION_RETRY_REQUIRED") => {
+                ("模型授权未完成或已过期，请重试", RecoveryAction::Retry)
+            }
+            _ => (
+                "模型服务暂时不可用，请稍后重试；如持续失败，请联系服务方",
+                RecoveryAction::Retry,
+            ),
         };
-        return Err(message(text));
+        return Err(actionable(text, action));
     }
     serde_json::from_value(value).map_err(|_| message("TokenOne 接入服务响应无效"))
 }
@@ -673,6 +699,7 @@ mod tests {
             service_url: Some(fixture.base.clone()),
             client_id: Some("fixture-public-client".into()),
             update_public_key: None,
+            tokenone_portal_url: None,
             endpoints: [(
                 "codex".into(),
                 (format!("{}/v1", fixture.base), "fixture-model".into()),
@@ -822,9 +849,23 @@ mod tests {
             )
             .await
             .err()
-            .unwrap()
-            .to_string();
-        assert!(error.contains("额度"));
-        assert!(!error.contains("must not escape"));
+            .unwrap();
+        assert!(error.to_string().contains("额度"));
+        let safe = serde_json::to_value(&error).unwrap();
+        assert_eq!(safe["action"], "portal");
+        assert!(!safe.to_string().contains("must not escape"));
+    }
+
+    #[tokio::test]
+    async fn missing_login_has_explicit_login_recovery() {
+        let f = fixture("credentials").await;
+        let a = auth(&f);
+        let error = a
+            .credential("codex", |_| panic!("must not open a browser"), |_| {})
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.recovery_action(), Some(RecoveryAction::Login));
+        assert!(f.calls.lock().unwrap().is_empty());
     }
 }

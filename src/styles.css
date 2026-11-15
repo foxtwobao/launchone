@@ -150,3 +150,10 @@ summary:hover { background: #f1f3f6; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 .dialog-actions .setup-button { width: auto; padding: 0 18px; background: white; color: #667180; border-color: #dce1e9; }
 .dialog-actions .primary-button { margin: 0; }
+
+.recovery-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.recovery-actions .text-button, .account-warning .text-button { padding-left: 0; color: var(--accent); }
+.recovery-actions span { font-size: 10px; color: var(--muted); }
+.recovery-actions button:disabled { color: #929baa; }
+.account-warning { border: 1px solid #f1dfb8; background: #fffbf1; border-radius: 7px; padding: 10px 12px; margin-bottom: 12px; }
+.account-warning p { margin: 0; color: #825f26; font-size: 11px; line-height: 1.7; }

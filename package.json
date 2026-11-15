@@ -20,7 +20,8 @@
     "package:mac": "node scripts/package-macos.mjs",
     "package:windows": "node scripts/package-windows.mjs",
     "tauri": "tauri",
-    "updates:publish:lab": "node scripts/publish-lab-update.mjs"
+    "updates:publish:lab": "node scripts/publish-lab-update.mjs",
+    "installers:sync": "node scripts/sync-installers.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

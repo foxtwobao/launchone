@@ -10,7 +10,7 @@ async function fixture(t, changes = {}) {
   let time = Date.now();
   const config = { origin: "https://launchone.test", issuer: "https://idone.test", resellerOrigin: "https://reseller.test",
     gatewayOrigin: "https://gateway.test", credential: "fixture-app-credential",
-    updateManifestFile: changes.updateManifestFile, updateArtifactDirectory: changes.updateArtifactDirectory };
+    updateManifestFile: changes.updateManifestFile, updateArtifactDirectory: changes.updateArtifactDirectory, downloadBaseUrl: changes.downloadBaseUrl };
   const state = { authorized: true, emailVerified: true, userIssuer: config.issuer, userSub: "fixture-sub", ...changes };
   const calls = [];
   const json = (value, status = 200) => Response.json(value, { status });
@@ -246,4 +246,21 @@ test("update downloads are public, support range requests and cannot escape the 
     assert.equal((await fetch(`${f.origin}/updates/files/${path}`)).status, 404);
   }
   assert.equal(f.calls.length, 0);
+});
+
+test("updater can move its local artifact path to the download origin without changing its signature", async t => {
+  const directory = await mkdtemp(join(tmpdir(), "launchone-updater-origin-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const manifestFile = join(directory, "latest.json");
+  await writeFile(manifestFile, JSON.stringify({ version: "0.2.5", platforms: {
+    "darwin-aarch64": { url: "https://launchone.test/updates/files/0.2.5/LaunchOne.app.tar.gz", signature: "unchanged-signature" },
+  } }));
+  const f = await fixture(t, { updateManifestFile: manifestFile, downloadBaseUrl: "https://downloads.test" });
+  const response = await fetch(`${f.origin}/v1/updates/darwin/aarch64/0.2.4`);
+  assert.deepEqual(await response.json(), { version: "0.2.5", url: "https://downloads.test/updates/files/0.2.5/LaunchOne.app.tar.gz", signature: "unchanged-signature" });
+  await writeFile(manifestFile, JSON.stringify({ version: "0.2.5", platforms: {
+    "darwin-aarch64": { url: "https://separate.test/updates/files/0.2.5/LaunchOne.app.tar.gz", signature: "unchanged-signature" },
+  } }));
+  const external = await fetch(`${f.origin}/v1/updates/darwin/aarch64/0.2.4`);
+  assert.equal((await external.json()).url, "https://separate.test/updates/files/0.2.5/LaunchOne.app.tar.gz");
 });

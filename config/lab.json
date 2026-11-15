@@ -1,10 +1,4 @@
 {
-  "LAUNCHONE_IDONE_ISSUER": "https://idone.lab.home.arpa",
-  "LAUNCHONE_CLIENT_ID": "7267e6f11e1a4663b61837fa26d811d3",
   "LAUNCHONE_SERVICE_URL": "https://launchone.lab.home.arpa",
-  "LAUNCHONE_CODEX_BASE_URL": "https://tokenone.lab.home.arpa/v1",
-  "LAUNCHONE_CODEX_MODEL": "gpt-5.6-sol",
-  "LAUNCHONE_CLAUDE_BASE_URL": "https://tokenone.lab.home.arpa",
-  "LAUNCHONE_CLAUDE_MODEL": "claude-sonnet-4-6",
   "LAUNCHONE_UPDATE_PUBLIC_KEY": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI2MTAzNDREMDAyQTY3QjEKUldTeFp5b0FUVFFRSmtESFM2dHZWZ3Y3c05OaHVlOFo2SVpZYklLT3laR0hUcmdBSmJVZFYzck8K"
 }

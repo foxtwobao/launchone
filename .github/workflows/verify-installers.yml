@@ -1,0 +1,37 @@
+name: Verify official installer
+run-name: installer-verify-${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique server verification request
+        type: string
+        required: true
+      candidate:
+        description: Candidate JSON from the mirror synchronization task
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ${{ fromJSON(inputs.candidate).platform == 'macos' && 'macos-latest' || 'windows-latest' }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Download and verify without executing the candidate
+        run: node scripts/verify-installer.mjs
+        env:
+          INSTALLER_REQUEST_ID: ${{ inputs.request_id }}
+          INSTALLER_CANDIDATE: ${{ inputs.candidate }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-report-${{ inputs.request_id }}
+          path: report.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1,8 +1,12 @@
 pub mod adapters;
 pub mod auth;
+#[cfg(any(feature = "desktop", test))]
+mod client_config;
 pub mod config;
 pub mod desktop_app;
 pub mod error;
+pub mod installers;
+pub mod macho;
 pub mod models;
 pub mod preferences;
 pub mod process;
@@ -98,6 +102,17 @@ mod desktop {
     #[tauri::command]
     async fn get_snapshot(runtime: State<'_, Arc<Runtime>>) -> Result<Snapshot> {
         Ok(runtime.snapshot().await)
+    }
+
+    #[tauri::command]
+    async fn open_tokenone_portal(
+        app: tauri::AppHandle,
+        runtime: State<'_, Arc<Runtime>>,
+    ) -> Result<()> {
+        let url = runtime.settings.tokenone_portal_url()?;
+        app.opener()
+            .open_url(url.as_str(), None::<&str>)
+            .map_err(|_| message("无法打开 TokenOne 账户页面，请检查系统浏览器"))
     }
 
     #[tauri::command]
@@ -251,15 +266,19 @@ mod desktop {
                 // Both builds manage the same Codex/Claude files. Share their
                 // original backups and config lock, including backups from 0.2.3.
                 let data = app.path().local_data_dir()?.join("com.tokenone.launchone");
-                app.manage(Arc::new(Runtime::new(
-                    home,
-                    data,
+                // Resolve public config before Auth reads a session: issuer and
+                // client ID form part of the saved login's service binding.
+                let settings = tauri::async_runtime::block_on(crate::client_config::load(
                     Settings::from_environment(),
-                )));
+                    &data,
+                    option_env!("LAUNCHONE_BUILD_ENV").unwrap_or("production"),
+                ));
+                app.manage(Arc::new(Runtime::new(home, data, settings)));
                 Ok(())
             })
             .invoke_handler(tauri::generate_handler![
                 get_snapshot,
+                open_tokenone_portal,
                 login,
                 cancel_login,
                 logout,

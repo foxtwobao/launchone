@@ -1,0 +1,26 @@
+# Replace the host and upstream before importing. Both proxies preserve paths.
+downloads.example.com {
+	@packages path /downloads/files/* /updates/files/*
+	handle @packages {
+		reverse_proxy 127.0.0.1:55400 {
+			transport http {
+				response_header_timeout 30s
+				# No response-body deadline: large downloads can take minutes.
+			}
+		}
+	}
+	handle {
+		respond 404
+	}
+}
+
+launchone.example.com {
+	@packages path /downloads/files/* /updates/files/*
+	handle @packages {
+		respond 404
+	}
+	handle {
+		reverse_proxy 127.0.0.1:55400
+	}
+	# Auth routes carry one-time codes; do not enable request/query access logs.
+}
