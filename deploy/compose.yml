@@ -1,0 +1,16 @@
+services:
+  launchone:
+    image: "docker.io/${DOCKERHUB_USERNAME:?请先在 .env 中填写 DOCKERHUB_USERNAME}/launchone:latest"
+    container_name: launchone
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "55400"
+    ports:
+      - "127.0.0.1:55400:55400"
+    volumes:
+      # 安装包、更新清单由维护者放入这里；服务只读取文件。
+      - ./data:/data:ro

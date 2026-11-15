@@ -206,7 +206,24 @@ GitHub **Settings → Secrets and variables → Actions → Secrets** 已有的�
 
 登录、模型和服务凭证仍通过**容器运行时的环境变量**提供，按第 2 步准备，完整格式见 [`server/.env.example`](../server/.env.example)。它们不是镜像构建参数，也不打进镜像。
 
-例如，把环境变量保存在服务器的 `/opt/launchone/server.env`，首次运行可用：
+已有可直接使用的 [`deploy/compose.yml`](../deploy/compose.yml) 和 [`deploy/.env.example`](../deploy/.env.example)。把两个文件放在服务器的同一个目录，将 `.env.example` 复制为 `.env`，按注释填写 Docker Hub 用户名、正式域名和应用配置，然后在该目录运行：
+
+```sh
+chmod 600 .env
+mkdir -p data/updates data/installers
+docker compose config --quiet
+docker compose pull
+docker compose up -d
+curl -fsS http://127.0.0.1:55400/health
+```
+
+`LAUNCHONE_PUBLIC_ORIGIN` 必须与 GitHub `desktop-release` 中的 `LAUNCHONE_SERVICE_URL` 一致。配置该域名的 DNS 和 HTTPS 反向代理：宿主机上的反代指向 `127.0.0.1:55400`；反代也运行在 Docker 中时，将两个服务接入同一个 Docker 网络，指向 `launchone:55400`。
+
+在 Reseller 后台给 LaunchOne 创建独立服务应用，取得 `RESELLER_APP_CREDENTIAL`，权限填 `keys:ensure`，允许的 issuer 与 `IDONE_ISSUER` 一致，精确回调填 `https://你的LaunchOne域名/auth/reseller/callback`。为应用设置可用的默认分组，并确认两个默认模型在该分组中可用。容器不需要苹果证书或 LaunchOne 更新签名私钥。
+
+应用内更新和官方安装包镜像的环境变量先留空；准备好文件后，再按 `.env.example` 中的路径启用。`data/` 只放可分发的安装包和清单，容器以只读方式挂载。更新镜像时运行 `docker compose pull && docker compose up -d`；只修改环境变量时运行 `docker compose up -d`。
+
+直接用 `docker run` 部署时，把环境变量保存在服务器的 `/opt/launchone/server.env`，首次运行可用：
 
 ```sh
 docker run -d --env-file /opt/launchone/server.env -e HOST=0.0.0.0 -e PORT=55400 -p 127.0.0.1:55400:55400 --name launchone --restart unless-stopped docker.io/your-dockerhub-user/launchone:latest
