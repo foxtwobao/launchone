@@ -76,7 +76,7 @@ test("never exposes unpublished, private, symlinked or mismatched files", async 
   assert.equal((await fetch(`${f.origin}/v1/installers/claude-desktop/macos/aarch64`)).status, 503);
 });
 test("mirror config requires complete HTTPS origin and absolute storage, no implicit fallback", () => {
-  const base = { LAUNCHONE_PUBLIC_ORIGIN: "https://app.test", IDONE_ISSUER: "https://id.test", RESELLER_ORIGIN: "https://r.test", RESELLER_GATEWAY_ORIGIN: "https://g.test", RESELLER_APP_CREDENTIAL: "long-test-credential", NODE_ENV: "production" };
+  const base = { LAUNCHONE_PUBLIC_ORIGIN: "https://app.test", IDONE_ISSUER: "https://id.test", RESELLER_ORIGIN: "https://r.test", RESELLER_APP_CREDENTIAL: "long-test-credential", NODE_ENV: "production" };
   assert.equal(readConfig(base).installerDirectory, undefined);
   assert.throws(() => readConfig({ ...base, LAUNCHONE_INSTALLER_DIRECTORY: "/var/installers" }));
   assert.throws(() => readConfig({ ...base, LAUNCHONE_DOWNLOAD_BASE_URL: "http://downloads.test", LAUNCHONE_INSTALLER_DIRECTORY: "/var/installers" }));

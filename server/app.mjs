@@ -45,7 +45,6 @@ export function readConfig(env = process.env) {
     LAUNCHONE_PUBLIC_ORIGIN: text,
     IDONE_ISSUER: text,
     RESELLER_ORIGIN: text,
-    RESELLER_GATEWAY_ORIGIN: text,
     RESELLER_APP_CREDENTIAL: z.string().min(16),
     LAUNCHONE_CLIENT_ID: optionalSetting(publicText(1024)),
     LAUNCHONE_TOKENONE_URL: optionalSetting(publicUrl(true)),
@@ -80,12 +79,12 @@ export function readConfig(env = process.env) {
   if (v.LAUNCHONE_INSTALLER_DIRECTORY && !downloadUrl) {
     throw new Error("Installer mirror requires both download origin and storage directory");
   }
-  const urls = [v.LAUNCHONE_PUBLIC_ORIGIN, v.IDONE_ISSUER, v.RESELLER_ORIGIN, v.RESELLER_GATEWAY_ORIGIN]
+  const urls = [v.LAUNCHONE_PUBLIC_ORIGIN, v.IDONE_ISSUER, v.RESELLER_ORIGIN]
     .map(value => serviceUrl(value, env.NODE_ENV !== "production"));
   if (urls.some(url => url.pathname !== "/")) throw new Error("Configure service origins without paths");
   return Object.freeze({
     origin: urls[0].origin, issuer: v.IDONE_ISSUER, resellerOrigin: urls[2].origin,
-    gatewayOrigin: urls[3].origin, credential: v.RESELLER_APP_CREDENTIAL, host: v.HOST, port: v.PORT,
+    credential: v.RESELLER_APP_CREDENTIAL, host: v.HOST, port: v.PORT,
     downloadBaseUrl: downloadUrl?.origin, installerDirectory: v.LAUNCHONE_INSTALLER_DIRECTORY || undefined,
     updateManifestFile: v.LAUNCHONE_UPDATE_MANIFEST_FILE,
     updateArtifactDirectory: v.LAUNCHONE_UPDATE_ARTIFACT_DIRECTORY,
@@ -95,7 +94,7 @@ export function readConfig(env = process.env) {
       LAUNCHONE_TOKENONE_URL: v.LAUNCHONE_TOKENONE_URL,
       LAUNCHONE_CODEX_MODEL: v.LAUNCHONE_CODEX_MODEL,
       LAUNCHONE_CLAUDE_MODEL: v.LAUNCHONE_CLAUDE_MODEL,
-      LAUNCHONE_TOKENONE_PORTAL_URL: v.LAUNCHONE_TOKENONE_PORTAL_URL || "",
+      LAUNCHONE_TOKENONE_PORTAL_URL: v.LAUNCHONE_TOKENONE_PORTAL_URL || v.LAUNCHONE_TOKENONE_URL,
     }) : undefined,
   });
 }
@@ -187,7 +186,8 @@ export function createApp(config, { fetch: request = globalThis.fetch, now = Dat
     if (!parsed.success) throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true);
     let url;
     try { url = new URL(parsed.data.authorization_url); } catch { throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true); }
-    if (url.origin !== config.gatewayOrigin || url.pathname !== "/_channel/start" || url.username || url.password || url.hash) {
+    // Authorization entry points are owned by the configured Reseller.
+    if (url.protocol !== "https:" || url.username || url.password || url.hash) {
       throw new ServiceError(503, "APP_SERVICE_UNAVAILABLE", true);
     }
     flow.authorizationUrl = url.href;

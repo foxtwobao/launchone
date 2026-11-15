@@ -16,13 +16,11 @@ const fixture = {
   LAUNCHONE_PUBLIC_ORIGIN: "https://launchone.example.test",
   IDONE_ISSUER: "https://idone.example.test",
   RESELLER_ORIGIN: "https://reseller.example.test",
-  RESELLER_GATEWAY_ORIGIN: "https://gateway.example.test",
   RESELLER_APP_CREDENTIAL: "fixture-only-credential-not-a-secret",
   LAUNCHONE_CLIENT_ID: "fixture-device-client",
   LAUNCHONE_TOKENONE_URL: "https://tokenone.example.test",
   LAUNCHONE_CODEX_MODEL: "fixture-codex-model",
   LAUNCHONE_CLAUDE_MODEL: "fixture-claude-model",
-  LAUNCHONE_TOKENONE_PORTAL_URL: "https://tokenone.example.test/account",
 };
 
 function docker(args) {
@@ -69,7 +67,7 @@ try {
     LAUNCHONE_TOKENONE_URL: fixture.LAUNCHONE_TOKENONE_URL,
     LAUNCHONE_CODEX_MODEL: fixture.LAUNCHONE_CODEX_MODEL,
     LAUNCHONE_CLAUDE_MODEL: fixture.LAUNCHONE_CLAUDE_MODEL,
-    LAUNCHONE_TOKENONE_PORTAL_URL: fixture.LAUNCHONE_TOKENONE_PORTAL_URL,
+    LAUNCHONE_TOKENONE_PORTAL_URL: fixture.LAUNCHONE_TOKENONE_URL,
   });
   const credentials = await fetch(`${base}/v1/credentials`, {
     method: "POST",

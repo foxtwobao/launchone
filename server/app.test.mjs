@@ -9,7 +9,7 @@ import { createApp, readConfig } from "./app.mjs";
 async function fixture(t, changes = {}) {
   let time = Date.now();
   const config = { origin: "https://launchone.test", issuer: "https://idone.test", resellerOrigin: "https://reseller.test",
-    gatewayOrigin: "https://gateway.test", credential: "fixture-app-credential",
+    credential: "fixture-app-credential",
     updateManifestFile: changes.updateManifestFile, updateArtifactDirectory: changes.updateArtifactDirectory, downloadBaseUrl: changes.downloadBaseUrl };
   const state = { authorized: true, emailVerified: true, userIssuer: config.issuer, userSub: "fixture-sub", ...changes };
   const calls = [];
@@ -40,7 +40,7 @@ async function fixture(t, changes = {}) {
       assert.equal(body.redirect_uri, `${config.origin}/auth/reseller/callback`);
       assert.equal(body.code_challenge.length, 43);
       state.authorization = body;
-      return json({ authorization_url: state.authorizationUrl ?? `${config.gatewayOrigin}/_channel/start?flow=fixture-flow`, expires_in: 300 });
+      return json({ authorization_url: state.authorizationUrl ?? "https://gateway.test/_channel/start?flow=fixture-flow", expires_in: 300 });
     }
     if (url.endsWith("/authorizations/complete")) {
       assert.equal(body.code, "fixture-code");
@@ -211,14 +211,33 @@ test("does not convert quota, disabled-account or service errors into authorizat
   assert.equal(f.calls.filter(call => call.path.endsWith("/authorizations")).length, 0);
 });
 
-test("rejects gateway redirects outside the configured lab gateway", async t => {
-  const f = await fixture(t, { authorized: false, authorizationUrl: "https://attacker.test/_channel/start?flow=x" });
-  assert.equal((await f.start()).status, 503);
+test("uses the configured Reseller's HTTPS authorization URL without a gateway setting or fixed path", async t => {
+  const authorizationUrl = "https://authorization.test/new/start?flow=fixture-flow";
+  const f = await fixture(t, { authorized: false, authorizationUrl });
+  const flow = await (await f.start()).json();
+  assert.equal(flow.status, "authorization_required");
+  const browser = await f.request(`/authorize/${flow.id}`);
+  assert.equal(browser.status, 302);
+  assert.equal(browser.headers.get("location"), authorizationUrl);
+  assert.equal((await f.complete(flow)).status, 303);
+  assert.deepEqual(await (await f.request(`/v1/authorizations/${flow.id}`)).json(), { status: "ready", key: "sk-fixture-personal" });
+});
+
+test("rejects invalid or unsafe authorization URLs returned by Reseller", async t => {
+  const f = await fixture(t, { authorized: false });
+  for (const authorizationUrl of [
+    "http://gateway.test/start?flow=x", "javascript:alert(1)", "/relative/start",
+    "https://user:password@gateway.test/start", "https://gateway.test/start#fragment", "not-a-url",
+  ]) {
+    f.state.authorizationUrl = authorizationUrl;
+    assert.equal((await f.start()).status, 503, authorizationUrl);
+    assert.equal(f.calls.filter(call => call.path.endsWith("/complete")).length, 0);
+  }
 });
 
 test("service config keeps publisher credentials server-side and requires exact HTTPS origins", () => {
   const env = { LAUNCHONE_PUBLIC_ORIGIN: "https://launchone.test", IDONE_ISSUER: "https://idone.test",
-    RESELLER_ORIGIN: "https://reseller.test", RESELLER_GATEWAY_ORIGIN: "https://gateway.test",
+    RESELLER_ORIGIN: "https://reseller.test",
     RESELLER_APP_CREDENTIAL: "fixture-app-credential", NODE_ENV: "production" };
   assert.equal(readConfig(env).port, 55400);
   assert.equal(readConfig({ ...env, LAUNCHONE_UPDATE_MANIFEST_FILE: "" }).updateManifestFile, undefined);
