@@ -206,7 +206,15 @@ GitHub **Settings → Secrets and variables → Actions → Secrets** 已有的�
 
 登录、模型和服务凭证仍通过**容器运行时的环境变量**提供，按第 2 步准备，完整格式见 [`server/.env.example`](../server/.env.example)。它们不是镜像构建参数，也不打进镜像。
 
-已有可直接使用的 [`deploy/compose.yml`](../deploy/compose.yml) 和 [`deploy/.env.example`](../deploy/.env.example)。把两个文件放在服务器的同一个目录，将 `.env.example` 复制为 `.env`，按注释填写 Docker Hub 用户名、正式域名和应用配置，然后在该目录运行：
+已有可直接使用的 [`deploy/compose.yml`](../deploy/compose.yml) 和 [`deploy/.env.example`](../deploy/.env.example)，Compose 中已逐项列出容器需要的环境变量。
+
+**Komodo Stack 部署：**
+
+1. 创建 Stack，选择目标服务器和直接编辑 Compose 的方式，将 `deploy/compose.yml` 的完整内容粘贴到 Compose 栏。
+2. 将 `deploy/.env.example` 内容粘贴到该 Stack 的 **Environment** 栏，按注释填写 Docker Hub 用户名、正式域名和应用配置。
+3. 保存后执行 **Pull images** 和 **Deploy**。Environment 的值会用于替换 Compose 中的 `${变量名}`，再逐项传入容器，无需另外上传 `.env` 文件。参见 [Komodo 的 Compose 说明](https://komo.do/docs/deploy/compose)。
+
+**命令行部署：** 把两个文件放在服务器的同一个目录，将 `.env.example` 复制为 `.env`，填写后在该目录运行：
 
 ```sh
 chmod 600 .env

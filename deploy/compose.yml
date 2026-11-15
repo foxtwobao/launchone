@@ -3,12 +3,24 @@ services:
     image: "docker.io/${DOCKERHUB_USERNAME:?请先在 .env 中填写 DOCKERHUB_USERNAME}/launchone:latest"
     container_name: launchone
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: "55400"
+      LAUNCHONE_PUBLIC_ORIGIN: "${LAUNCHONE_PUBLIC_ORIGIN:?请填写 LaunchOne 正式服务地址}"
+      IDONE_ISSUER: "${IDONE_ISSUER:?请填写 IDONE 正式 issuer}"
+      LAUNCHONE_CLIENT_ID: "${LAUNCHONE_CLIENT_ID:?请填写 LaunchOne Client ID}"
+      LAUNCHONE_TOKENONE_URL: "${LAUNCHONE_TOKENONE_URL:?请填写 TokenOne 正式根域名}"
+      LAUNCHONE_CODEX_MODEL: "${LAUNCHONE_CODEX_MODEL:?请填写 Codex 默认模型}"
+      LAUNCHONE_CLAUDE_MODEL: "${LAUNCHONE_CLAUDE_MODEL:?请填写 Claude 默认模型}"
+      LAUNCHONE_TOKENONE_PORTAL_URL: "${LAUNCHONE_TOKENONE_PORTAL_URL:-}"
+      RESELLER_ORIGIN: "${RESELLER_ORIGIN:?请填写 Reseller 正式根域名}"
+      RESELLER_GATEWAY_ORIGIN: "${RESELLER_GATEWAY_ORIGIN:?请填写授权网关正式根域名}"
+      RESELLER_APP_CREDENTIAL: "${RESELLER_APP_CREDENTIAL:?请填写 LaunchOne 服务端应用凭证}"
+      LAUNCHONE_UPDATE_MANIFEST_FILE: "${LAUNCHONE_UPDATE_MANIFEST_FILE:-}"
+      LAUNCHONE_UPDATE_ARTIFACT_DIRECTORY: "${LAUNCHONE_UPDATE_ARTIFACT_DIRECTORY:-}"
+      LAUNCHONE_DOWNLOAD_BASE_URL: "${LAUNCHONE_DOWNLOAD_BASE_URL:-}"
+      LAUNCHONE_INSTALLER_DIRECTORY: "${LAUNCHONE_INSTALLER_DIRECTORY:-}"
     ports:
       - "127.0.0.1:55400:55400"
     volumes:
