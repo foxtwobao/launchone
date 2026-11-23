@@ -31,6 +31,14 @@ struct Session {
     expires_at: u64,
 }
 
+#[cfg(windows)]
+fn windows_session_filename(profile: Option<&str>) -> &'static str {
+    match profile {
+        Some("lab") => "idone-session-lab.dpapi",
+        _ => "idone-session.dpapi",
+    }
+}
+
 #[derive(Deserialize)]
 struct Discovery {
     issuer: String,
@@ -93,7 +101,7 @@ impl Auth {
                 .and_then(|s| serde_json::from_str::<Session>(&s).ok())
         };
         #[cfg(windows)]
-        let session_file = _data.join("idone-session.dpapi");
+        let session_file = _data.join(windows_session_filename(option_env!("LAUNCHONE_BUILD_ENV")));
         #[cfg(windows)]
         let saved = match crate::windows_session::read(&session_file) {
             Ok(Some(bytes)) => serde_json::from_slice(&bytes).ok(),
@@ -602,6 +610,14 @@ mod tests {
         Json, Router,
     };
     use std::sync::{Arc, Mutex as StdMutex};
+
+    #[cfg(windows)]
+    #[test]
+    fn lab_and_production_use_separate_windows_session_files() {
+        assert_eq!(windows_session_filename(Some("lab")), "idone-session-lab.dpapi");
+        assert_eq!(windows_session_filename(Some("production")), "idone-session.dpapi");
+        assert_eq!(windows_session_filename(None), "idone-session.dpapi");
+    }
 
     struct Fixture {
         base: String,
