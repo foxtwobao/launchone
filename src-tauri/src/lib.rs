@@ -1,5 +1,7 @@
 pub mod adapters;
 pub mod auth;
+#[cfg(windows)]
+mod windows_session;
 #[cfg(any(feature = "desktop", test))]
 mod client_config;
 pub mod config;

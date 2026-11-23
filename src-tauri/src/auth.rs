@@ -6,6 +6,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
@@ -72,21 +73,43 @@ pub struct Auth {
     settings: Settings,
     session: Mutex<Option<Session>>,
     cancelled: AtomicBool,
+    credential_user: &'static str,
+    #[cfg(windows)]
+    session_file: std::path::PathBuf,
     #[cfg(test)]
     isolated: bool,
 }
 
 impl Auth {
-    pub fn new(settings: Settings) -> Self {
-        let saved = keyring::Entry::new(credential_namespace(), "idone")
-            .ok()
-            .and_then(|e| e.get_password().ok())
-            .and_then(|s| serde_json::from_str::<Session>(&s).ok())
-            .filter(|s| s.service_binding == service_binding(&settings));
+    pub fn new(settings: Settings, data: &Path) -> Self {
+        Self::with_credential_user(settings, data, "idone")
+    }
+
+    fn with_credential_user(settings: Settings, _data: &Path, credential_user: &'static str) -> Self {
+        let read_legacy = || {
+            keyring::Entry::new(credential_namespace(), credential_user)
+                .ok()
+                .and_then(|e| e.get_password().ok())
+                .and_then(|s| serde_json::from_str::<Session>(&s).ok())
+        };
+        #[cfg(windows)]
+        let session_file = _data.join("idone-session.dpapi");
+        #[cfg(windows)]
+        let saved = match crate::windows_session::read(&session_file) {
+            Ok(Some(bytes)) => serde_json::from_slice(&bytes).ok(),
+            Ok(None) => read_legacy(),
+            Err(_) => None,
+        };
+        #[cfg(not(windows))]
+        let saved = read_legacy();
+        let saved = saved.filter(|s: &Session| s.service_binding == service_binding(&settings));
         Self {
             settings,
             session: Mutex::new(saved),
             cancelled: AtomicBool::new(false),
+            credential_user,
+            #[cfg(windows)]
+            session_file,
             #[cfg(test)]
             isolated: false,
         }
@@ -99,6 +122,9 @@ impl Auth {
             settings,
             session: Mutex::new(None),
             cancelled: AtomicBool::new(false),
+            credential_user: "idone",
+            #[cfg(windows)]
+            session_file: Default::default(),
             isolated: true,
         }
     }
@@ -316,13 +342,17 @@ impl Auth {
             *self.session.lock().await = None;
             return Ok(());
         }
-        let entry = keyring::Entry::new(credential_namespace(), "idone")
+        let mut session = self.session.lock().await;
+        let entry = keyring::Entry::new(credential_namespace(), self.credential_user)
             .map_err(|_| message("无法访问系统凭据存储"))?;
         match entry.delete_credential() {
             Ok(_) | Err(keyring::Error::NoEntry) => {}
             Err(_) => return Err(message("无法清除本地登录信息，请重试")),
         }
-        *self.session.lock().await = None;
+        #[cfg(windows)]
+        crate::windows_session::remove(&self.session_file)
+            .map_err(|_| message("无法清除本地登录信息，请重试"))?;
+        *session = None;
         Ok(())
     }
 
@@ -468,11 +498,14 @@ impl Auth {
         if self.isolated {
             return Ok(());
         }
-        keyring::Entry::new(credential_namespace(), "idone")
+        #[cfg(windows)]
+        let saved = crate::windows_session::write(&self.session_file, &serde_json::to_vec(session)?);
+        #[cfg(not(windows))]
+        let saved = keyring::Entry::new(credential_namespace(), self.credential_user)
             .and_then(|entry| {
                 entry.set_password(&serde_json::to_string(session).expect("serializable session"))
-            })
-            .map_err(|_| message("系统凭据存储不可用，无法安全保存登录信息"))
+            });
+        saved.map_err(|_| message("系统凭据存储不可用，无法安全保存登录信息"))
     }
 }
 
@@ -718,6 +751,30 @@ mod tests {
             refresh_token: Some("fixture-refresh-token".into()),
             expires_at: if expired { 0 } else { now() + 3600 },
         });
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn long_windows_session_survives_restart_and_is_cleared_on_logout() {
+        let fixture = fixture("success").await;
+        let settings = auth(&fixture).settings;
+        let directory = tempfile::tempdir().unwrap();
+        let new_auth = || Auth::with_credential_user(settings.clone(), directory.path(), "idone-test-long-session");
+        let current = new_auth();
+        seed(&current, false).await;
+        let mut session = current.session.lock().await.take().unwrap();
+        session.access_token = "fixture-access-".repeat(300);
+        session.refresh_token = Some("fixture-refresh-".repeat(300));
+        current.persist(&session).unwrap();
+
+        let encrypted = std::fs::read(&current.session_file).unwrap();
+        assert!(!encrypted.windows(b"fixture-access-".len()).any(|chunk| chunk == b"fixture-access-"));
+        let restored = new_auth();
+        let saved = restored.session.lock().await.take().unwrap();
+        assert!(saved.access_token == session.access_token);
+        assert!(saved.refresh_token == session.refresh_token);
+        restored.logout().await.unwrap();
+        assert!(new_auth().account().await.is_none());
     }
 
     #[tokio::test]
