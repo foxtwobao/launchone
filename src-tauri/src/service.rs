@@ -24,7 +24,7 @@ impl Runtime {
     pub fn new(home: PathBuf, data: PathBuf, settings: Settings) -> Self {
         Self {
             registry: Registry::default(),
-            auth: Auth::new(settings.clone()),
+            auth: Auth::new(settings.clone(), &data),
             settings,
             operation: Mutex::new(()),
             context: Context::new(home),

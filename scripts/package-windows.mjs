@@ -36,21 +36,26 @@ function main() {
 
   const release = join(target, windowsTarget, "release");
   const bundle = join(release, "bundle", "nsis");
-  const installer = readdirSync(bundle).filter(name => name.endsWith(".exe") && name.includes(version));
-  if (installer.length !== 1) throw new Error("未找到唯一的当前版本 Windows 安装包。");
+  exportWindowsInstaller(bundle, output, version);
+  console.log(`Windows 安装包已生成：${output}`);
+}
+
+export function exportWindowsInstaller(bundle, output, version) {
+  const suffix = `_${version}_x64-setup.exe`;
+  const files = readdirSync(bundle);
+  const installers = files.filter(name => name.endsWith(suffix));
+  if (installers.length !== 1) throw new Error("未找到唯一的当前版本 Windows 安装包。");
+  const [installer] = installers;
+  const signature = `${installer}.sig`;
+  if (!files.includes(signature)) throw new Error("签名 NSIS 安装包缺失");
+
+  const filename = `${installer.slice(0, -suffix.length)}_${version}.exe`;
+  const names = [filename, `${filename}.sig`];
   mkdirSync(output, { recursive: true });
-  const names = [installer[0]];
-  copyFileSync(join(bundle, installer[0]), join(output, installer[0]));
-  if (signedUpdater) {
-    // Tauri v2 signs the NSIS .exe directly (the .nsis.zip is v1 format).
-    const signature = `${installer[0]}.sig`;
-    if (!readdirSync(bundle).includes(signature)) throw new Error('签名 NSIS 安装包缺失');
-    copyFileSync(join(bundle, signature), join(output, signature));
-    names.push(signature);
-  }
+  copyFileSync(join(bundle, installer), join(output, names[0]));
+  copyFileSync(join(bundle, signature), join(output, names[1]));
   writeFileSync(join(output, "SHA256SUMS.txt"), names.map(name =>
     `${createHash("sha256").update(readFileSync(join(output, name))).digest("hex")}  ${name}\n`).join(""));
-  console.log(`Windows 安装包已生成：${output}`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
